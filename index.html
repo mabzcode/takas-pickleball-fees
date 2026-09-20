@@ -285,25 +285,63 @@ function upsert(arr, item){
 }
 async function putMember(m){
   if(S.mode==='cloud') await S.db.doc('members/'+m.id).set(m);
+  else if(S.mode==='firebase') await fbPut('members/'+m.id, m);
   upsert(S.members, m);
   if(S.mode==='local') persistLocal();
 }
 async function putGame(g){
   if(S.mode==='cloud') await S.db.doc('games/'+g.id).set(g);
+  else if(S.mode==='firebase') await fbPut('games/'+g.id, g);
   upsert(S.games, g);
   if(S.mode==='local') persistLocal();
 }
 async function removeGame(id){
   if(S.mode==='cloud') await S.db.doc('games/'+id).delete();
+  else if(S.mode==='firebase') await fbDelete('games/'+id);
   S.games = S.games.filter(function(g){return g.id!==id;});
   if(S.mode==='local') persistLocal();
 }
 async function putSettings(s){
   if(S.mode==='cloud') await S.db.doc('settings/main').set(s);
+  else if(S.mode==='firebase') await fbPut('settings', Object.assign({}, DEFAULTS, s));
   S.settings = Object.assign({}, DEFAULTS, s);
   if(S.mode==='local') persistLocal();
 }
 function saveError(){ toast("Couldn't save. You may have view-only access, or the connection dropped."); }
+
+/* ---------- firebase realtime database (shared storage outside claude.ai) ---------- */
+var FB_URL = 'https://takas-pickleball-fees-default-rtdb.firebaseio.com';
+function fbUrl(path){ return FB_URL+'/'+path+'.json'; }
+function fbObjToArr(obj){
+  return obj ? Object.keys(obj).map(function(k){ return Object.assign({}, obj[k], {id:k}); }) : [];
+}
+async function fbPut(path, data){
+  var res = await fetch(fbUrl(path), {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+  if(!res.ok) throw new Error('firebase put failed: '+res.status);
+}
+async function fbDelete(path){
+  var res = await fetch(fbUrl(path), {method:'DELETE'});
+  if(!res.ok) throw new Error('firebase delete failed: '+res.status);
+}
+async function loadFirebase(){
+  try{
+    var res = await fetch(fbUrl(''), {cache:'no-store'});
+    if(!res.ok) return false;
+    var data = (await res.json()) || {};
+    S.members = fbObjToArr(data.members);
+    S.games = fbObjToArr(data.games);
+    S.settings = Object.assign({}, DEFAULTS, data.settings||{});
+    return true;
+  }catch(e){ return false; }
+}
+async function pollFirebase(){
+  if(S.mode!=='firebase') return;
+  var ok = await loadFirebase();
+  if(ok) onData(true);
+}
+function startFirebasePolling(){
+  setInterval(pollFirebase, 6000);
+}
 
 function saveDraft(){
   try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({date:S.date,hours:S.hours,courts:S.courts,ids:Array.from(S.ids),loadedDate:S.loadedDate,day:todayStr()})); }catch(e){}
@@ -323,8 +361,10 @@ async function boot(){
     }
   }catch(e){}
   S.downloads = dl;
-  if(db){ S.mode='cloud'; S.db=db; subscribe(); }
-  else { S.mode='local'; loadLocal(); onData(true); }
+  if(db){ S.mode='cloud'; S.db=db; subscribe(); return; }
+  var fbOk = await loadFirebase();
+  if(fbOk){ S.mode='firebase'; onData(true); startFirebasePolling(); return; }
+  S.mode='local'; loadLocal(); onData(true);
 }
 function subscribe(){
   var got={m:false,g:false};
@@ -406,7 +446,8 @@ function render(){
     app.innerHTML='<div class="skel" aria-hidden="true"></div><p class="hint" style="text-align:center">Loading records\u2026</p>';
     sb.hidden=true; document.body.classList.remove('has-save'); return;
   }
-  var banner = S.mode==='local' ? '<p class="note">Records are saved in this browser only. They will not appear on other devices.</p>' : '';
+  var banner = S.mode==='local' ? '<p class="note">Records are saved in this browser only. They will not appear on other devices.</p>'
+    : S.mode==='firebase' ? '<p class="note">Shared records — everyone with this link sees the same data.</p>' : '';
   if(S.tab==='game'){ app.innerHTML = banner + gameShell(); refreshGame(); }
   else if(S.tab==='records'){ app.innerHTML = banner + recordsHTML(); }
   else { app.innerHTML = banner + playersShell(); updateMemberList(); }
