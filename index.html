@@ -917,15 +917,23 @@ function after(){ saveDraft(); updateFee(true); updateWhen(); updateCourtsList()
    combined court fee for the selection and a way to tag all of them paid
    (or unpaid) to the venue on one date in a single action. */
 function selectionBar(){
-  if(!S.selectedGames || !S.selectedGames.size) return '';
-  var games = S.games.filter(function(g){ return S.selectedGames.has(g.id); });
-  var total = Math.round(games.reduce(function(a,g){ return a+(g.total||0); },0)*100)/100;
+  var allGames = S.games;
+  if(!allGames.length) return '';
+  var selected = allGames.filter(function(g){ return S.selectedGames.has(g.id); });
+  var allSelected = selected.length===allGames.length;
+  if(!selected.length){
+    return '<button class="link" type="button" data-act="select-all-games">Select all '+allGames.length+' day'+(allGames.length===1?'':'s')+'</button>';
+  }
+  var total = Math.round(selected.reduce(function(a,g){ return a+(g.total||0); },0)*100)/100;
   var d = S.bulkCourtFeeDate || todayStr();
   return '<div class="pay-edit-row" style="margin-bottom:12px">' +
-    '<div class="pay-edit-name">'+games.length+' day'+(games.length===1?'':'s')+' selected · '+peso(total)+' total court fee</div>' +
-    '<div class="pay-row-in"><input id="bulkCourtFeeDate" type="date" lang="en-US" value="'+esc(d)+'" aria-label="Date paid"></div>' +
+    '<div class="pay-edit-name">'+selected.length+' day'+(selected.length===1?'':'s')+' selected · '+peso(total)+' total court fee</div>' +
+    '<div class="pay-row-in">' +
+      '<input id="bulkCourtFeeDate" type="date" lang="en-US" value="'+esc(d)+'" aria-label="Date court fee paid">' +
+      (!allSelected ? '<button class="link" type="button" data-act="select-all-games">Select all</button>' : '') +
+    '</div>' +
     '<div class="row">' +
-      '<button class="btn ghost sm" type="button" data-act="clear-game-selection">Clear selection</button>' +
+      '<button class="btn ghost sm" type="button" data-act="clear-game-selection">Unselect All</button>' +
       '<button class="btn ghost sm danger" type="button" data-act="mark-selected-court-fee-unpaid">Mark unpaid</button>' +
       '<button class="btn primary sm" type="button" data-act="mark-selected-court-fee-paid">'+(S.confirmBulkCourtFee?'Tap again to confirm':'Mark court fee paid')+'</button>' +
     '</div>' +
@@ -986,7 +994,7 @@ function courtFeeEditRow(g){
 function courtFeeRow(g){
   var info = gameCourtFeeInfo(g);
   var editing = S.courtFeeEdit && S.courtFeeEdit.game===g.id;
-  var statusLbl = info.paid ? ('Paid · '+fmtDate(info.date)) : 'Not yet paid';
+  var statusLbl = info.paid ? ('Paid on '+fmtDate(info.date)) : 'Not yet paid';
   return '<button type="button" class="bal-row bal-row-btn" data-act="toggle-court-fee" data-id="'+esc(g.id)+'" aria-pressed="'+info.paid+'" aria-expanded="'+editing+'">' +
     '<span class="nm">Court fee<small>'+peso(g.total||0)+'</small></span>' +
     '<span class="bal-amt'+(info.paid?'':' danger')+'">'+statusLbl+'</span></button>' +
@@ -1023,7 +1031,7 @@ function gameCard(g){
   return '<article class="g'+(open?' open':'')+(selected?' selected':'')+'"><div class="g-h">' +
     '<button type="button" class="g-check" data-act="toggle-select-game" data-id="'+esc(g.id)+'" aria-pressed="'+selected+'" aria-label="Select this day"><span class="sel-box'+(selected?' on':'')+'">'+(selected?ICON.check:'')+'</span></button>' +
     '<button type="button" class="g-h-main" data-act="open-game" data-id="'+esc(g.id)+'" aria-expanded="'+open+'">' +
-    '<span class="g-l"><b>'+esc(fmtDate(g.date))+(cfInfo.paid?' <span class="cf-badge">'+ICON.check+'Court fee paid</span>':'')+'</b><span>'+courtsSummary(gameCourtHours(g))+' \u00B7 '+n+' player'+(n===1?'':'s')+'</span></span>' +
+    '<span class="g-l"><b>'+esc(fmtDate(g.date))+(cfInfo.paid?' <span class="cf-badge">'+ICON.check+'Court fee paid '+esc(fmtShort(cfInfo.date))+'</span>':'')+'</b><span>'+courtsSummary(gameCourtHours(g))+' \u00B7 '+n+' player'+(n===1?'':'s')+'</span></span>' +
     '<span class="g-r"><b>'+peso(g.total||0)+'</b><span>'+peso(g.each||0)+' each \u00B7 '+paidN+'/'+n+' paid</span></span>' +
     '<span class="chev">'+ICON.chev+'</span></button></div>'+body+'</article>';
 }
@@ -1352,6 +1360,7 @@ document.addEventListener('click', async function(e){
       break;
     }
     case 'clear-game-selection': S.selectedGames=new Set(); S.confirmBulkCourtFee=false; render(); break;
+    case 'select-all-games': S.selectedGames=new Set(S.games.map(function(g){return g.id;})); render(); break;
     case 'mark-selected-court-fee-paid': {
       if(!S.confirmBulkCourtFee){
         S.confirmBulkCourtFee=true; render();
