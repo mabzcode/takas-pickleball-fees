@@ -575,6 +575,10 @@ function openingPaidFor(id){
   var ob=openingBalance();
   return (ob && ob.playerPaid && ob.playerPaid[id]!=null) ? +ob.playerPaid[id] : null;
 }
+function openingGamesFor(id){
+  var ob=openingBalance();
+  return (ob && ob.playerGames && ob.playerGames[id]!=null) ? +ob.playerGames[id] : null;
+}
 function computeStats(){
   var st={};
   S.games.forEach(function(g){
@@ -599,6 +603,7 @@ function computeStats(){
     if(ob.playerDues) Object.keys(ob.playerDues).forEach(function(id){ ids[id]=1; });
     if(ob.playerPaid) Object.keys(ob.playerPaid).forEach(function(id){ ids[id]=1; });
     if(ob.playerUnpaid) Object.keys(ob.playerUnpaid).forEach(function(id){ ids[id]=1; });
+    if(ob.playerGames) Object.keys(ob.playerGames).forEach(function(id){ ids[id]=1; });
     Object.keys(ids).forEach(function(id){
       var s = st[id] || (st[id]={count:0,owed:0,paid:0,unpaid:0,last:''});
       var hasFull = ob.playerDues && ob.playerDues[id]!=null;
@@ -611,6 +616,7 @@ function computeStats(){
         if(amt>0.001) s.owed = Math.round((s.owed+amt)*100)/100;
       }
       s.unpaid = Math.round((s.owed-s.paid)*100)/100;
+      if(ob.playerGames && ob.playerGames[id]!=null) s.count += (+ob.playerGames[id]||0);
     });
   }
   S.stats=st;
@@ -886,9 +892,9 @@ function openPlayerDetail(id){
       '<button class="btn primary sm" type="button" data-act="mark-opening-paid" data-id="'+esc(id)+'">'+(S.confirmOpeningPaid===id?'Tap again to confirm':'Mark opening balance as paid')+'</button>' +
     '</div>'
   ) : '';
-  var obDues = openingDuesFor(id), obPaidTotal = openingPaidFor(id);
+  var obDues = openingDuesFor(id), obPaidTotal = openingPaidFor(id), obGames = openingGamesFor(id);
   var obSummary = obDues!=null ? (
-    '<p class="hint">As of Aug 2026 (before tracking): '+peso(obDues)+' dues · '+peso(obPaidTotal||0)+' paid'+(obAmt>0.001?' · '+peso(obAmt)+' unpaid':' · fully paid')+'</p>'
+    '<p class="hint">As of Aug 2026 (before tracking): '+(obGames!=null?obGames+' game'+(obGames===1?'':'s')+' · ':'')+peso(obDues)+' dues · '+peso(obPaidTotal||0)+' paid'+(obAmt>0.001?' · '+peso(obAmt)+' unpaid':' · fully paid')+'</p>'
   ) : '';
   /* In-app figures computed directly from this player's recorded games, so
      they stay separate from the Aug opening balance above rather than the
@@ -897,7 +903,7 @@ function openPlayerDetail(id){
   var inAppPaid = Math.round(games.reduce(function(a,g){ return a+gamePaidAmount(g,id); },0)*100)/100;
   var inAppUnpaid = Math.round((inAppOwed-inAppPaid)*100)/100;
   openSheet('<h2>'+esc(name)+'</h2>' +
-    '<p class="hint"><b>Total: '+peso(s.owed||0)+' owed · '+peso(s.paid||0)+' paid · '+balanceText(s.unpaid||0)+'</b> (includes Aug 2026 balance)</p>' +
+    '<p class="hint"><b>Total: '+(s.count||0)+' game'+(s.count===1?'':'s')+' · '+peso(s.owed||0)+' owed · '+peso(s.paid||0)+' paid · '+balanceText(s.unpaid||0)+'</b> (includes Aug 2026 balance)</p>' +
     obSummary +
     '<p class="hint">Since Sept 2026: '+s.count+' game'+(s.count===1?'':'s')+' · '+peso(inAppOwed)+' owed · '+peso(inAppPaid)+' paid · '+balanceText(inAppUnpaid)+'</p>' +
     selectBar +
