@@ -107,6 +107,13 @@ input::placeholder{color:var(--muted);font-weight:500}
 .seg button[aria-pressed=true]{background:var(--pick-bg);color:var(--pick-ink);border-color:var(--pick-bg)}
 .seg.sm{display:inline-grid;grid-template-columns:auto auto;gap:4px}
 .seg.sm button{height:34px;padding:0 12px;font-size:12px;border-radius:999px}
+.court-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.court-row:last-child{border-bottom:0}
+.court-row-lbl{flex:1;font-weight:800;font-size:14px}
+.stepper.sm{height:40px;width:132px;flex:none}
+.stepper.sm button{width:40px;font-size:18px}
+.stepper.sm output{font-size:14px}
+.link.danger{color:var(--danger)}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:52px;padding:0 18px;border-radius:16px;font-weight:800;font-size:15px;border:2px solid var(--line-strong);background:var(--surface)}
 .btn.primary{background:var(--lime);color:var(--navy);border-color:var(--btn-line)}
@@ -265,6 +272,22 @@ function peso(n){
 }
 function fmtHrs(h){ return (h===1 ? '1 hr' : h+' hrs'); }
 function courtsLbl(c){ return c+' court'+(c===1?'':'s'); }
+/* Legacy-compatible reader: returns an array of hours, one per court, for a
+   saved game. New records store this directly as g.courts (an array); older
+   records stored a single g.hours applied uniformly across a g.courts count. */
+function gameCourtHours(g){
+  if(g && Array.isArray(g.courts)) return g.courts.slice();
+  var n=(g && g.courts) || 1, h=(g && g.hours) || 0, arr=[];
+  for(var i=0;i<n;i++) arr.push(h);
+  return arr;
+}
+function courtsSummary(arr){
+  arr = (arr && arr.length) ? arr : [0];
+  if(arr.length===1) return fmtHrs(arr[0])+' · 1 court';
+  var allSame = arr.every(function(h){return h===arr[0];});
+  if(allSame) return fmtHrs(arr[0])+' · '+courtsLbl(arr.length);
+  return arr.map(function(h,i){return 'Court '+(i+1)+': '+fmtHrs(h);}).join(', ');
+}
 function cmpName(a,b){ return a.localeCompare(b, undefined, {sensitivity:'base'}); }
 function uid(){ return 'm_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
@@ -281,13 +304,14 @@ var DEFAULTS={rate:50, minFee:25, pin:''};
 var S = {
   tab:'home', mode:'loading', ready:false, inited:false, db:null, downloads:null,
   members:[], games:[], settings:{rate:50,minFee:25,pin:''}, stats:{}, pendingAdminCb:null,
-  date:todayStr(), hours:1, courts:1, ids:new Set(), loadedDate:null,
+  date:todayStr(), courts:[1], ids:new Set(), loadedDate:null,
   q:'', openGame:null, confirmDel:null, openMember:null, showHidden:false, sortBy:'az', dirty:false
 };
 
 /* ---------- fee math ---------- */
-function calc(hours, courts, n, s){
-  var total = Math.round(hours*courts*s.rate*100)/100;
+function calc(courtHours, n, s){
+  var totalHours = (courtHours||[]).reduce(function(a,h){return a+(+h||0);},0);
+  var total = Math.round(totalHours*s.rate*100)/100;
   if(!n) return {total:total,n:0,each:0,collected:0,note:''};
   var raw = total/n, up = Math.ceil(raw-1e-9);
   var each = Math.max(s.minFee, up);
@@ -299,7 +323,7 @@ function calc(hours, courts, n, s){
 }
 function presentIds(){ return Array.from(S.ids).filter(function(id){ return S.members.some(function(m){return m.id===id;}); }); }
 function nameOf(id){ var m=S.members.find(function(x){return x.id===id;}); return m ? m.name : 'Unknown player'; }
-function curCalc(){ return calc(S.hours, S.courts, presentIds().length, S.settings); }
+function curCalc(){ return calc(S.courts, presentIds().length, S.settings); }
 function gamePaidInfo(g, id){
   if(g && g.paid && Object.prototype.hasOwnProperty.call(g.paid, id)){
     var v=g.paid[id];
@@ -410,7 +434,7 @@ function startFirebasePolling(){
 }
 
 function saveDraft(){
-  try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({date:S.date,hours:S.hours,courts:S.courts,ids:Array.from(S.ids),loadedDate:S.loadedDate,day:todayStr()})); }catch(e){}
+  try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({date:S.date,courts:S.courts,ids:Array.from(S.ids),loadedDate:S.loadedDate,day:todayStr()})); }catch(e){}
 }
 function readDraft(){
   try{ var d=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null'); return (d && d.day===todayStr()) ? d : null; }catch(e){ return null; }
@@ -470,7 +494,7 @@ function isTyping(){
 function initForm(){
   var draft = readDraft();
   if(draft){
-    S.date=draft.date; S.hours=draft.hours; S.courts=draft.courts;
+    S.date=draft.date; S.courts=(draft.courts && draft.courts.length) ? draft.courts : [1];
     S.ids=new Set(draft.ids.filter(function(id){return S.members.some(function(m){return m.id===id;});}));
     S.loadedDate = draft.loadedDate;
     return;
@@ -478,10 +502,10 @@ function initForm(){
   var today = S.games.find(function(g){return g.id===S.date;});
   if(today){ loadGame(today); return; }
   var last = S.games.slice().sort(function(a,b){return b.date.localeCompare(a.date);})[0];
-  if(last){ S.hours=last.hours; S.courts=last.courts; }
+  if(last){ S.courts=gameCourtHours(last); }
 }
 function loadGame(g){
-  S.date=g.date; S.hours=g.hours; S.courts=g.courts;
+  S.date=g.date; S.courts=gameCourtHours(g);
   S.ids=new Set(g.playerIds||[]); S.loadedDate=g.date;
 }
 function computeStats(){
@@ -663,7 +687,7 @@ function openPlayerDetail(id){
     } else {
       statusLbl = 'Unpaid';
     }
-    return '<div class="bal-row"><span class="nm">'+esc(fmtDate(g.date))+'<small>'+fmtHrs(g.hours)+' · '+courtsLbl(g.courts)+'</small></span>' +
+    return '<div class="bal-row"><span class="nm">'+esc(fmtDate(g.date))+'<small>'+courtsSummary(gameCourtHours(g))+'</small></span>' +
       '<span class="bal-amt'+(full?'':' danger')+'">'+statusLbl+'</span></div>';
   }).join('');
   var s = S.stats[id] || {count:0, owed:0, paid:0, unpaid:0};
@@ -681,15 +705,9 @@ function gameShell(){
     '<div class="field"><label class="lbl" for="date">Date</label>' +
       '<div class="date-row"><input type="date" id="date" lang="en-US"><span class="day-badge" id="dayBadge" aria-hidden="true"></span><button class="chip-btn" id="todayBtn" data-act="today" hidden>Today</button></div>' +
       '<p class="hint" id="dateHint" hidden></p></div>' +
-    '<div class="grid2">' +
-      '<div class="field"><span class="lbl" id="hrsLbl">Hours played</span>' +
-        '<div class="stepper" role="group" aria-labelledby="hrsLbl">' +
-          '<button data-act="hrs-" id="hrsMinus" aria-label="Half an hour less">\u2212</button><output id="hrsOut" aria-live="polite"></output><button data-act="hrs+" id="hrsPlus" aria-label="Half an hour more">+</button>' +
-        '</div></div>' +
-      '<div class="field"><span class="lbl" id="crtLbl">Courts used</span>' +
-        '<div class="seg" role="group" aria-labelledby="crtLbl">' +
-          [1,2,3].map(function(n){ return '<button data-act="courts" data-v="'+n+'" aria-label="'+courtsLbl(n)+'">'+n+'</button>'; }).join('') +
-        '</div></div>' +
+    '<div class="field"><span class="lbl">Courts played</span>' +
+      '<div id="courtsList"></div>' +
+      '<button class="link" type="button" data-act="add-court">+ Add another court</button>' +
     '</div>' +
   '</section>' +
   '<section class="card" aria-label="Players present">' +
@@ -705,7 +723,22 @@ function gameShell(){
 }
 function refreshGame(){
   if(!$('#fee')) return;
-  updateWhen(); updateFee(); updateRoster(); updateSaveBar(); updateBalances();
+  updateWhen(); updateFee(); updateCourtsList(); updateRoster(); updateSaveBar(); updateBalances();
+}
+function updateCourtsList(){
+  var el=$('#courtsList'); if(!el) return;
+  var arr = S.courts.length ? S.courts : [0];
+  el.innerHTML = arr.map(function(h,i){
+    return '<div class="court-row">' +
+      '<span class="court-row-lbl">Court '+(i+1)+'</span>' +
+      '<div class="stepper sm" role="group" aria-label="Court '+(i+1)+' hours">' +
+        '<button data-act="court-hrs-" data-i="'+i+'" aria-label="Half an hour less">−</button>' +
+        '<output>'+fmtHrs(h)+'</output>' +
+        '<button data-act="court-hrs+" data-i="'+i+'" aria-label="Half an hour more">+</button>' +
+      '</div>' +
+      (arr.length>1 ? '<button class="link danger" type="button" data-act="remove-court" data-i="'+i+'">Remove</button>' : '') +
+    '</div>';
+  }).join('');
 }
 function updateBalances(){
   var el=$('#balances'); if(!el) return;
@@ -727,10 +760,6 @@ function updateWhen(){
   var d=$('#date'); if(!d) return;
   if(d.value!==S.date) d.value=S.date;
   var db=$('#dayBadge'); if(db) db.textContent=fmtDay(S.date);
-  $('#hrsOut').textContent=fmtHrs(S.hours);
-  $('#hrsMinus').disabled = S.hours<=0.5;
-  $('#hrsPlus').disabled = S.hours>=12;
-  $$('[data-act="courts"]').forEach(function(b){ b.setAttribute('aria-pressed', String(+b.dataset.v===S.courts)); });
   $('#todayBtn').hidden = (S.date===todayStr());
   var has = (S.loadedDate===S.date);
   var h=$('#dateHint'); h.hidden=!has;
@@ -739,7 +768,7 @@ function updateWhen(){
 function updateFee(pop){
   var el=$('#fee'); if(!el) return;
   var c=curCalc();
-  var top = fmtHrs(S.hours)+' \u00D7 '+courtsLbl(S.courts)+' \u00D7 '+peso(S.settings.rate);
+  var top = courtsSummary(S.courts)+' \u00D7 '+peso(S.settings.rate);
   var each = c.n ? peso(c.each) : '\u20B1\u2013';
   var line1 = c.n ? (peso(c.total)+' \u00F7 '+c.n+' player'+(c.n===1?'':'s')) : (peso(c.total)+' to split');
   var line2 = c.n ? c.note : 'Tag who played below';
@@ -781,7 +810,7 @@ function updateSaveBar(){
   sb.innerHTML='<div class="savebar-in"><button class="btn ghost" data-act="copy-current" aria-label="Copy summary to share"'+(n?'':' disabled')+'>'+ICON.copy+'Copy</button>' +
     '<button class="btn primary" data-act="save"'+(n?'':' disabled')+'>'+esc(label)+'</button></div>';
 }
-function after(){ saveDraft(); updateFee(true); updateWhen(); updateCount(); updateSaveBar(); }
+function after(){ saveDraft(); updateFee(true); updateWhen(); updateCourtsList(); updateCount(); updateSaveBar(); }
 
 /* --- records tab --- */
 function recordsHTML(){
@@ -821,7 +850,7 @@ function gameCard(g){
   }
   var paidN=ids.filter(function(id){ var a=gamePaidAmount(g,id); return a>0.001 && a>=(g.each||0)-0.001; }).length;
   return '<article class="g'+(open?' open':'')+'"><button class="g-h" data-act="open-game" data-id="'+esc(g.id)+'" aria-expanded="'+open+'">' +
-    '<span class="g-l"><b>'+esc(fmtDate(g.date))+'</b><span>'+fmtHrs(g.hours)+' \u00B7 '+courtsLbl(g.courts)+' \u00B7 '+n+' player'+(n===1?'':'s')+'</span></span>' +
+    '<span class="g-l"><b>'+esc(fmtDate(g.date))+'</b><span>'+courtsSummary(gameCourtHours(g))+' \u00B7 '+n+' player'+(n===1?'':'s')+'</span></span>' +
     '<span class="g-r"><b>'+peso(g.each||0)+'</b><span>each \u00B7 '+paidN+'/'+n+' paid</span></span>' +
     '<span class="chev">'+ICON.chev+'</span></button>'+body+'</article>';
 }
@@ -891,10 +920,10 @@ async function shareText(t){
   if(ok) toast('Summary copied. Paste it in your group chat.');
   else openSheet('<h2>Summary</h2><textarea class="copybox" id="copyBox" readonly>'+esc(t)+'</textarea><div class="row"><button class="btn primary" data-act="close-sheet">Done</button></div>');
 }
-function summary(date, hours, courts, ids, each, total, rate){
+function summary(date, courtHours, ids, each, total, rate){
   var names=ids.map(nameOf).sort(cmpName), n=ids.length;
   return 'Takas Pickleball \u2013 '+fmtDate(date)+'\n' +
-    fmtHrs(hours)+' \u00D7 '+courtsLbl(courts)+' \u00D7 '+peso(rate)+' = '+peso(total)+'\n' +
+    courtsSummary(courtHours)+' \u00D7 '+peso(rate)+' = '+peso(total)+'\n' +
     n+' player'+(n===1?'':'s')+' \u00B7 '+peso(each)+' each\n\n' +
     names.map(function(x){return '\u2022 '+x;}).join('\n');
 }
@@ -942,7 +971,7 @@ async function saveGame(){
   var ex=S.games.find(function(g){return g.id===S.date;});
   var keptPaid={};
   if(ex){ ids.forEach(function(id){ var info=gamePaidInfo(ex,id); if(info.amount>0.001) keptPaid[id]={amount:info.amount, method:info.method}; }); }
-  var g={id:S.date,date:S.date,hours:S.hours,courts:S.courts,playerIds:ids,paid:keptPaid,total:c.total,each:c.each,rate:S.settings.rate,minFee:S.settings.minFee,createdAt:(ex&&ex.createdAt)||Date.now(),updatedAt:Date.now()};
+  var g={id:S.date,date:S.date,courts:S.courts.slice(),playerIds:ids,paid:keptPaid,total:c.total,each:c.each,rate:S.settings.rate,minFee:S.settings.minFee,createdAt:(ex&&ex.createdAt)||Date.now(),updatedAt:Date.now()};
   try{
     await putGame(g);
     S.loadedDate=S.date; computeStats(); saveDraft();
@@ -954,15 +983,17 @@ async function saveGame(){
 function csvCell(v){ v=String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 async function exportCsv(){
   if(!S.downloads) return;
-  var rows=[['Date','Hours','Courts','Court fee total','Each pays','Players','Names','Fully paid','Not fully paid','Cash payers','GCash payers']];
+  var rows=[['Date','Courts (hrs each)','Total hours','Court fee total','Each pays','Players','Names','Fully paid','Not fully paid','Cash payers','GCash payers']];
   S.games.slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(g){
     var ids=g.playerIds||[];
+    var ch=gameCourtHours(g);
+    var totalHours=ch.reduce(function(a,h){return a+(+h||0);},0);
     var isFull=function(id){ var a=gamePaidAmount(g,id); return a>0.001 && a>=(g.each||0)-0.001; };
     var paidNames=ids.filter(isFull).map(nameOf).sort(cmpName);
     var unpaidNames=ids.filter(function(id){return !isFull(id);}).map(nameOf).sort(cmpName);
     var cashNames=ids.filter(function(id){ return gamePaidAmount(g,id)>0.001 && gamePaidMethod(g,id)==='cash'; }).map(nameOf).sort(cmpName);
     var gcashNames=ids.filter(function(id){ return gamePaidAmount(g,id)>0.001 && gamePaidMethod(g,id)==='gcash'; }).map(nameOf).sort(cmpName);
-    rows.push([g.date,g.hours,g.courts,g.total,g.each,ids.length,ids.map(nameOf).sort(cmpName).join('; '),paidNames.join('; '),unpaidNames.join('; '),cashNames.join('; '),gcashNames.join('; ')]);
+    rows.push([g.date,courtsSummary(ch),totalHours,g.total,g.each,ids.length,ids.map(nameOf).sort(cmpName).join('; '),paidNames.join('; '),unpaidNames.join('; '),cashNames.join('; '),gcashNames.join('; ')]);
   });
   var csv='\uFEFF'+rows.map(function(r){return r.map(csvCell).join(',');}).join('\n');
   try{ await S.downloads.save({filename:'takas-pickleball-records.csv', data:csv}); }
@@ -1016,9 +1047,14 @@ document.addEventListener('click', async function(e){
   var act=el.dataset.act, id=el.dataset.id;
   switch(act){
     case 'today': setDate(todayStr()); break;
-    case 'hrs-': S.hours=Math.max(0.5, S.hours-0.5); after(); break;
-    case 'hrs+': S.hours=Math.min(12, S.hours+0.5); after(); break;
-    case 'courts': S.courts=+el.dataset.v; after(); break;
+    case 'court-hrs-': { var chi=+el.dataset.i; S.courts[chi]=Math.max(0.5, (S.courts[chi]||0)-0.5); updateCourtsList(); after(); break; }
+    case 'court-hrs+': { var chi2=+el.dataset.i; S.courts[chi2]=Math.min(12, (S.courts[chi2]||0)+0.5); updateCourtsList(); after(); break; }
+    case 'add-court': S.courts.push(1); updateCourtsList(); after(); break;
+    case 'remove-court': {
+      var cri=+el.dataset.i;
+      if(S.courts.length>1) S.courts.splice(cri,1);
+      updateCourtsList(); after(); break;
+    }
     case 'toggle':
       if(S.ids.has(id)) S.ids.delete(id); else S.ids.add(id);
       el.classList.toggle('on', S.ids.has(id)); el.setAttribute('aria-checked', String(S.ids.has(id)));
@@ -1028,7 +1064,7 @@ document.addEventListener('click', async function(e){
     case 'save': saveGame(); break;
     case 'copy-current': {
       var ids=presentIds(), c=curCalc();
-      shareText(summary(S.date,S.hours,S.courts,ids,c.each,c.total,S.settings.rate)); break;
+      shareText(summary(S.date,S.courts,ids,c.each,c.total,S.settings.rate)); break;
     }
     case 'open-game': S.openGame = (S.openGame===id ? null : id); S.confirmDel=null; render(); break;
     case 'toggle-paid': {
@@ -1057,7 +1093,7 @@ document.addEventListener('click', async function(e){
         var newIds=(rgm.playerIds||[]).filter(function(x){return x!==rpid;});
         var rpaid=Object.assign({}, rgm.paid||{});
         delete rpaid[rpid];
-        var rc=calc(rgm.hours, rgm.courts, newIds.length, {rate:rgm.rate||S.settings.rate, minFee:rgm.minFee||S.settings.minFee});
+        var rc=calc(gameCourtHours(rgm), newIds.length, {rate:rgm.rate||S.settings.rate, minFee:rgm.minFee||S.settings.minFee});
         var rng=Object.assign({}, rgm, {playerIds:newIds, paid:rpaid, total:rc.total, each:rc.each});
         delete rng.paidIds;
         try{
@@ -1098,7 +1134,7 @@ document.addEventListener('click', async function(e){
     }
     case 'copy-game': {
       var gg=S.games.find(function(x){return x.id===id;});
-      if(gg) shareText(summary(gg.date,gg.hours,gg.courts,gg.playerIds||[],gg.each||0,gg.total||0,gg.rate||S.settings.rate));
+      if(gg) shareText(summary(gg.date,gameCourtHours(gg),gg.playerIds||[],gg.each||0,gg.total||0,gg.rate||S.settings.rate));
       break;
     }
     case 'del-game':
