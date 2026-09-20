@@ -494,7 +494,7 @@ function onData(ready){
 }
 function isTyping(){
   var a=document.activeElement;
-  return !!(a && (a.id==='renameIn' || a.id==='newName'));
+  return !!(a && (a.id==='renameIn' || a.id==='newName' || a.id==='payAmt'));
 }
 function initForm(){
   var draft = readDraft();
@@ -834,9 +834,8 @@ function recordsHTML(){
   return html;
 }
 function payEditRow(g, id){
-  var info=gamePaidInfo(g,id);
-  var amount = info.amount>0.001 ? info.amount : (g.each||0);
-  var method = info.method==='gcash' ? 'gcash' : 'cash';
+  var amount = S.payEdit ? S.payEdit.amount : (g.each||0);
+  var method = (S.payEdit && S.payEdit.method==='gcash') ? 'gcash' : 'cash';
   return '<div class="pay-edit-row" data-method="'+method+'">' +
     '<div class="pay-edit-name">Tagging <b>'+esc(nameOf(id))+'</b> · owes '+peso(g.each||0)+'</div>' +
     '<div class="pay-row-in">' +
@@ -1097,12 +1096,20 @@ document.addEventListener('click', async function(e){
     case 'toggle-paid': {
       var gid=el.dataset.game, tpid=id;
       promptAdmin(function(){
-        S.payEdit = (S.payEdit && S.payEdit.game===gid && S.payEdit.id===tpid) ? null : {game:gid, id:tpid};
+        if(S.payEdit && S.payEdit.game===gid && S.payEdit.id===tpid){
+          S.payEdit=null;
+        } else {
+          var gmO=S.games.find(function(x){return x.id===gid;});
+          var infoO=gmO?gamePaidInfo(gmO,tpid):{amount:0,method:'cash'};
+          var defAmt = infoO.amount>0.001 ? infoO.amount : (gmO?(gmO.each||0):0);
+          S.payEdit={game:gid, id:tpid, amount:defAmt, method:infoO.method};
+        }
         render();
       });
       break;
     }
     case 'pay-method': {
+      if(S.payEdit) S.payEdit.method = el.dataset.v;
       var row=el.closest('.pay-edit-row');
       if(row){
         row.dataset.method = el.dataset.v;
@@ -1130,10 +1137,9 @@ document.addEventListener('click', async function(e){
       promptAdmin(async function(){
         var sgm2=S.games.find(function(x){return x.id===sgid2;});
         if(!sgm2) return;
-        var amtIn=$('#payAmt'); var v=amtIn?parseFloat(amtIn.value):0;
+        var amtIn=$('#payAmt'); var v=amtIn?parseFloat(amtIn.value):(S.payEdit?parseFloat(S.payEdit.amount):0);
         if(!(v>=0)) v=0;
-        var row2=$('.pay-edit-row');
-        var method2=(row2 && row2.dataset.method==='gcash') ? 'gcash' : 'cash';
+        var method2=(S.payEdit && S.payEdit.method==='gcash') ? 'gcash' : 'cash';
         var paidObjS=Object.assign({}, sgm2.paid||{});
         paidObjS[spid]={amount:Math.round(v*100)/100, method:method2};
         var ngS=Object.assign({}, sgm2, {paid:paidObjS});
@@ -1274,6 +1280,7 @@ async function doRename(id){
 }
 document.addEventListener('input', function(e){
   if(e.target.id==='q'){ S.q=e.target.value; updateRoster(); }
+  if(e.target.id==='payAmt' && S.payEdit){ S.payEdit.amount=e.target.value; }
 });
 document.addEventListener('change', function(e){
   if(e.target.id==='date') setDate(e.target.value);
