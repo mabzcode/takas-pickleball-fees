@@ -331,7 +331,7 @@ var S = {
   tab:'home', mode:'loading', ready:false, inited:false, db:null, downloads:null,
   members:[], games:[], settings:{rate:50,minFee:25,pin:''}, stats:{}, pendingAdminCb:null,
   date:todayStr(), courts:[1], ids:new Set(), loadedDate:null,
-  q:'', openGame:null, confirmDel:null, payEdit:null, courtFeeEdit:null, openMember:null, playerDetailId:null, playerBulkMethod:'cash', confirmBulkPay:null, selectedPlayerGames:new Set(), selectedGames:new Set(), bulkCourtFeeDate:null, confirmBulkCourtFee:false, showHidden:false, sortBy:'az', dirty:false
+  q:'', openGame:null, confirmDel:null, payEdit:null, courtFeeEdit:null, openMember:null, playerDetailId:null, playerBulkMethod:'cash', confirmBulkPay:null, selectedPlayerGames:new Set(), selectedGames:new Set(), bulkCourtFeeDate:null, confirmBulkCourtFee:false, showHidden:false, sortBy:'az', dirty:false, confirmOpeningPaid:null
 };
 
 /* ---------- fee math ---------- */
@@ -434,9 +434,14 @@ async function deleteMember(id){
   if(S.mode==='local') persistLocal();
 }
 async function putSettings(s){
-  if(S.mode==='cloud') await S.db.doc('settings/main').set(s);
-  else if(S.mode==='firebase') await fbPut('settings', Object.assign({}, DEFAULTS, s));
-  S.settings = Object.assign({}, DEFAULTS, s);
+  /* Merge onto the settings already loaded (not just DEFAULTS), so a partial
+     update — like saving the fee-rules form, which only knows about rate/
+     minFee/pin — never wipes out other settings fields such as
+     openingBalance. */
+  var merged = Object.assign({}, DEFAULTS, S.settings, s);
+  if(S.mode==='cloud') await S.db.doc('settings/main').set(merged);
+  else if(S.mode==='firebase') await fbPut('settings', merged);
+  S.settings = merged;
   if(S.mode==='local') persistLocal();
 }
 function saveError(){ toast("Couldn't save. You may have view-only access, or the connection dropped."); }
@@ -550,6 +555,15 @@ function loadGame(g){
   S.date=g.date; S.courts=gameCourtHours(g);
   S.ids=new Set(g.playerIds||[]); S.loadedDate=g.date;
 }
+/* Beginning balances brought forward from before the app tracked day-by-day
+   records (set once in Settings > openingBalance). Player balances and the
+   Home summary fold these in so totals are a true running/lifetime figure,
+   not just what's been recorded in-app. */
+function openingBalance(){ return S.settings.openingBalance || null; }
+function openingUnpaidFor(id){
+  var ob=openingBalance();
+  return (ob && ob.playerUnpaid && +ob.playerUnpaid[id]>0) ? +ob.playerUnpaid[id] : 0;
+}
 function computeStats(){
   var st={};
   S.games.forEach(function(g){
@@ -563,6 +577,16 @@ function computeStats(){
   Object.keys(st).forEach(function(id){
     st[id].unpaid = Math.round((st[id].owed - st[id].paid)*100)/100;
   });
+  var ob = openingBalance();
+  if(ob && ob.playerUnpaid){
+    Object.keys(ob.playerUnpaid).forEach(function(id){
+      var amt = +ob.playerUnpaid[id]||0;
+      if(amt<=0.001) return;
+      var s = st[id] || (st[id]={count:0,owed:0,paid:0,unpaid:0,last:''});
+      s.owed = Math.round((s.owed+amt)*100)/100;
+      s.unpaid = Math.round((s.unpaid+amt)*100)/100;
+    });
+  }
   S.stats=st;
 }
 /* Find players who share the same name (case/spacing-insensitive) and merge
@@ -717,6 +741,40 @@ function playerBalanceRow(p){
     '<span class="bal-amt'+(p.unpaid>0.001?' danger':(p.unpaid<-0.001?' credit':''))+'">'+balanceText(p.unpaid)+'</span>' +
     '</button>';
 }
+/* Lifetime totals = the beginning balance brought forward, plus everything
+   the app has tracked since. Kept separate from the month-by-month cards
+   below, which stay scoped to what's actually recorded in-app per month. */
+function allTimeTotals(monthly){
+  var ob = openingBalance() || {};
+  var sum = function(key){ return monthly.reduce(function(a,m){ return a+(m[key]||0); }, 0); };
+  return {
+    dues: Math.round(((ob.dues||0) + sum('collectible'))*100)/100,
+    paid: Math.round(((ob.paid||0) + sum('paid'))*100)/100,
+    unpaid: Math.round(((ob.unpaid||0) + sum('unpaid'))*100)/100,
+    courtFeePaid: Math.round(((ob.courtFeePaid||0) + sum('venuePaid'))*100)/100,
+    cashOnHand: Math.round(((ob.cashOnHand||0) + sum('cashOnHand'))*100)/100
+  };
+}
+function allTimeCard(monthly){
+  var ob = openingBalance();
+  if(!ob) return '';
+  var at = allTimeTotals(monthly);
+  var asOfLbl = ob.asOf ? fmtDate(ob.asOf) : 'the beginning balance';
+  return '<section class="card" style="margin-top:0"><div class="sec-h"><h2>All-time summary</h2></div>' +
+    '<div class="month-sec-h">Collections</div>' +
+    '<div class="month-row-g">' +
+      '<div><span class="mrl">Total dues</span><b>'+peso(at.dues)+'</b></div>' +
+      '<div><span class="mrl">Paid</span><b>'+peso(at.paid)+'</b></div>' +
+      '<div><span class="mrl">Unpaid</span><b'+(at.unpaid>0.001?' class="danger"':'')+'>'+peso(at.unpaid)+'</b></div>' +
+    '</div>' +
+    '<div class="month-row-fund"><span class="mrl">Cash on hand</span><b'+(at.cashOnHand<-0.001?' class="danger"':'')+'>'+peso(at.cashOnHand)+'</b></div>' +
+    '<div class="month-sec-h">Court fees</div>' +
+    '<div class="month-row-g">' +
+      '<div><span class="mrl">Court fee paid</span><b>'+peso(at.courtFeePaid)+'</b></div>' +
+    '</div>' +
+    '<p class="hint" style="margin-top:10px">Includes a beginning balance as of '+esc(asOfLbl)+': '+peso(ob.dues||0)+' dues, '+peso(ob.paid||0)+' paid, '+peso(ob.courtFeePaid||0)+' court fee paid'+(ob.expenses>0.001?', '+peso(ob.expenses)+' expense ('+esc(ob.expenseLabel||'expense')+')':'')+', '+peso(ob.cashOnHand||0)+' cash on hand.</p>' +
+    '</section>';
+}
 function homeShell(){
   var monthly = computeMonthly();
   var active = S.members.filter(function(m){ return m.active!==false; });
@@ -729,7 +787,8 @@ function homeShell(){
     return cmpName(a.name,b.name);
   });
   var totalUnpaid = Math.round(rows.reduce(function(a,r){ return a + Math.max(0,r.unpaid); }, 0)*100)/100;
-  var html = '<section class="card" style="margin-top:0"><div class="sec-h"><h2>Monthly summary</h2></div>' +
+  var html = allTimeCard(monthly);
+  html += '<section class="card"'+(html?'':' style="margin-top:0"')+'><div class="sec-h"><h2>Monthly summary</h2></div>' +
     (monthly.length ? monthly.map(monthRow).join('') : '<p class="hint">No games recorded yet.</p>') +
     '</section>';
   html += '<section class="card"><div class="sec-h"><h2>Player balances</h2><span class="count">'+peso(totalUnpaid)+' owed</span></div>' +
@@ -789,9 +848,22 @@ function openPlayerDetail(id){
       '</div>' +
     '</div>'
   ) : (unpaidIds.length ? '<button class="link" type="button" data-act="select-all-unpaid" data-id="'+esc(id)+'">Select all '+unpaidIds.length+' unpaid game'+(unpaidIds.length===1?'':'s')+'</button>' : '');
+  var obAmt = openingUnpaidFor(id);
+  var obRow = obAmt>0.001 ? (
+    '<div class="bal-row-wrap">' +
+      '<div class="bal-row" style="flex:1;margin-left:38px">' +
+        '<span class="nm">Opening balance<small>Brought forward from before tracking</small></span>' +
+        '<span class="bal-amt danger">'+peso(obAmt)+' unpaid</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="row" style="margin:8px 0 8px 38px">' +
+      '<button class="btn primary sm" type="button" data-act="mark-opening-paid" data-id="'+esc(id)+'">'+(S.confirmOpeningPaid===id?'Tap again to confirm':'Mark opening balance as paid')+'</button>' +
+    '</div>'
+  ) : '';
   openSheet('<h2>'+esc(name)+'</h2>' +
     '<p class="hint">'+s.count+' game'+(s.count===1?'':'s')+' · '+peso(s.owed||0)+' owed total · '+peso(s.paid||0)+' paid total · '+balanceText(s.unpaid||0)+'</p>' +
     selectBar +
+    obRow +
     (rows || '<p class="hint">No games recorded yet.</p>') +
     (games.length ? '<p class="hint">Tap a game to tag payment (Cash or GCash) and set the amount, or check a game to select it. A PIN is required to make changes.</p>' : '') +
     '<div class="row"><button class="btn ghost" data-act="close-player-detail">Close</button></div>');
@@ -1539,6 +1611,29 @@ document.addEventListener('click', async function(e){
           computeStats(); S.payEdit=null; S.selectedPlayerGames=new Set();
           if(S.playerDetailId===mapid) openPlayerDetail(mapid); else render();
           toast('Marked '+toUpdate.length+' game'+(toUpdate.length===1?'':'s')+' as paid');
+        }catch(err){ saveError(); }
+      });
+      break;
+    }
+    case 'mark-opening-paid': {
+      var mopid=id;
+      if(S.confirmOpeningPaid!==mopid){
+        S.confirmOpeningPaid=mopid;
+        if(S.playerDetailId===mopid) openPlayerDetail(mopid);
+        setTimeout(function(){ if(S.confirmOpeningPaid===mopid){ S.confirmOpeningPaid=null; if(S.playerDetailId===mopid) openPlayerDetail(mopid); } }, 4000);
+        break;
+      }
+      promptAdmin(async function(){
+        S.confirmOpeningPaid=null;
+        var ob = Object.assign({}, openingBalance()||{});
+        var pu = Object.assign({}, ob.playerUnpaid||{});
+        pu[mopid]=0;
+        ob.playerUnpaid=pu;
+        try{
+          await putSettings({openingBalance:ob});
+          computeStats();
+          if(S.playerDetailId===mopid) openPlayerDetail(mopid); else render();
+          toast('Opening balance marked as paid');
         }catch(err){ saveError(); }
       });
       break;
