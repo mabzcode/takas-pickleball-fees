@@ -772,7 +772,7 @@ function allTimeCard(monthly){
     '<div class="month-row-g">' +
       '<div><span class="mrl">Court fee paid</span><b>'+peso(at.courtFeePaid)+'</b></div>' +
     '</div>' +
-    '<p class="hint" style="margin-top:10px">Includes a beginning balance as of '+esc(asOfLbl)+': '+peso(ob.dues||0)+' dues, '+peso(ob.paid||0)+' paid, '+peso(ob.courtFeePaid||0)+' court fee paid'+(ob.expenses>0.001?', '+peso(ob.expenses)+' expense ('+esc(ob.expenseLabel||'expense')+')':'')+', '+peso(ob.cashOnHand||0)+' cash on hand.</p>' +
+    '<p class="hint" style="margin-top:10px">Includes a beginning balance as of '+esc(asOfLbl)+': '+(ob.initialFund>0.001?peso(ob.initialFund)+' initial fund, ':'')+peso(ob.dues||0)+' dues, '+peso(ob.paid||0)+' paid, '+peso(ob.courtFeePaid||0)+' court fee paid'+(ob.expenses>0.001?', '+peso(ob.expenses)+' expense ('+esc(ob.expenseLabel||'expense')+')':'')+', '+peso(ob.cashOnHand||0)+' cash on hand.</p>' +
     '</section>';
 }
 function homeShell(){
