@@ -236,6 +236,9 @@ input::placeholder{color:var(--muted);font-weight:500}
 .month-row-fund{margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--sel);border:1px solid var(--sel-line);display:flex;justify-content:space-between;align-items:baseline}
 .month-row-fund .mrl{font-size:11px;font-weight:600;color:var(--muted);margin-bottom:0}
 .month-row-fund b{font-size:14px;color:var(--sel-line)}
+.month-row-fund b.danger{color:var(--danger)}
+.month-sec-h{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:14px 0 6px}
+.month-row .month-sec-h:first-of-type{margin-top:2px}
 .sheet h2{font-size:17px;font-weight:800;margin-bottom:14px}
 .sheet .row{display:flex;gap:10px;margin-top:16px}
 .sheet .row .btn{flex:1}
@@ -679,20 +682,31 @@ function computeMonthly(){
     mo.fund=Math.max(0, Math.round((mo.paid-mo.total)*100)/100);
     mo.venuePaid=Math.round(mo.venuePaid*100)/100;
     mo.venuePayable=Math.max(0, Math.round((mo.total-mo.venuePaid)*100)/100);
+    /* Total collectible is what players actually owe (after rounding/minimum
+       fee), which can be a little more than the true court fee. */
+    mo.collectible=Math.round((mo.paid+mo.unpaid)*100)/100;
+    /* Cash on hand: money actually collected from players, minus whatever of
+       that has already been forwarded to the venue. Can go negative if the
+       venue was paid out of pocket ahead of collections. */
+    mo.cashOnHand=Math.round((mo.paid-mo.venuePaid)*100)/100;
     mo.label=dfMonth.format(parseDate(k+'-01'));
     return mo;
   });
 }
 function monthRow(m){
   return '<div class="month-row"><div class="month-row-h"><b>'+esc(m.label)+'</b><span>'+m.days+' day'+(m.days===1?'':'s')+' played</span></div>' +
+    '<div class="month-sec-h">Collections</div>' +
     '<div class="month-row-g">' +
-      '<div><span class="mrl">Court fees</span><b>'+peso(m.total)+'</b></div>' +
+      '<div><span class="mrl">Total collectible</span><b>'+peso(m.collectible)+'</b></div>' +
       '<div><span class="mrl">Paid</span><b>'+peso(m.paid)+'</b></div>' +
       '<div><span class="mrl">Unpaid</span><b'+(m.unpaid>0.001?' class="danger"':'')+'>'+peso(m.unpaid)+'</b></div>' +
     '</div>' +
-    '<div class="month-row-g cols-2" style="margin-top:8px">' +
-      '<div><span class="mrl">Paid court fee</span><b>'+peso(m.venuePaid)+'</b></div>' +
-      '<div><span class="mrl">Payable court fee</span><b'+(m.venuePayable>0.001?' class="danger"':'')+'>'+peso(m.venuePayable)+'</b></div>' +
+    '<div class="month-row-fund"><span class="mrl">Cash on hand</span><b'+(m.cashOnHand<-0.001?' class="danger"':'')+'>'+peso(m.cashOnHand)+'</b></div>' +
+    '<div class="month-sec-h">Court fees ('+peso(S.settings.rate||50)+'/hour/court)</div>' +
+    '<div class="month-row-g">' +
+      '<div><span class="mrl">Court fee for payment</span><b>'+peso(m.total)+'</b></div>' +
+      '<div><span class="mrl">Court fee paid</span><b>'+peso(m.venuePaid)+'</b></div>' +
+      '<div><span class="mrl">Court fee payable</span><b'+(m.venuePayable>0.001?' class="danger"':'')+'>'+peso(m.venuePayable)+'</b></div>' +
     '</div>' +
     (m.fund>0.001 ? '<div class="month-row-fund"><span class="mrl">Court fund (rounding excess)</span><b>+'+peso(m.fund)+'</b></div>' : '') +
     '</div>';
