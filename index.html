@@ -1189,7 +1189,12 @@ function balanceText(unpaid){
 function memberSub(id){
   var s=S.stats[id];
   if(!s||!s.count) return 'No games yet';
-  return s.count+(s.count===1?' game':' games')+' \u00B7 '+balanceText(s.unpaid)+' \u00B7 last played '+fmtShort(s.last);
+  /* s.last only gets set from in-app games (computeStats' games loop), so a
+     player whose count is entirely from the Aug-2026 opening balance (no
+     games recorded in-app yet) has no last-played date \u2014 skip that clause
+     instead of calling fmtShort on an empty string and crashing. */
+  var lastBit = s.last ? (' \u00B7 last played '+fmtShort(s.last)) : '';
+  return s.count+(s.count===1?' game':' games')+' \u00B7 '+balanceText(s.unpaid)+lastBit;
 }
 function memberRow(m){
   var open=S.openMember===m.id;
