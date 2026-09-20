@@ -318,7 +318,7 @@ var S = {
   tab:'home', mode:'loading', ready:false, inited:false, db:null, downloads:null,
   members:[], games:[], settings:{rate:50,minFee:25,pin:''}, stats:{}, pendingAdminCb:null,
   date:todayStr(), courts:[1], ids:new Set(), loadedDate:null,
-  q:'', openGame:null, confirmDel:null, payEdit:null, courtFeeEdit:null, openMember:null, playerDetailId:null, showHidden:false, sortBy:'az', dirty:false
+  q:'', openGame:null, confirmDel:null, payEdit:null, courtFeeEdit:null, openMember:null, playerDetailId:null, playerBulkMethod:'cash', confirmBulkPay:null, showHidden:false, sortBy:'az', dirty:false
 };
 
 /* ---------- fee math ---------- */
@@ -710,11 +710,16 @@ function homeShell(){
   return html;
 }
 function openPlayerDetail(id){
+  if(S.playerDetailId!==id){ S.playerBulkMethod='cash'; S.confirmBulkPay=null; }
   S.playerDetailId = id;
   var name = nameOf(id);
   var games = S.games.filter(function(g){ return (g.playerIds||[]).indexOf(id)!==-1; })
     .slice().sort(function(a,b){ return b.date.localeCompare(a.date); });
   var editingGame = (S.payEdit && S.payEdit.id===id) ? S.payEdit.game : null;
+  var unpaidCount = games.filter(function(g){
+    var info=gamePaidInfo(g,id), owed=g.each||0;
+    return !(info.amount>0.001 && info.amount>=owed-0.001);
+  }).length;
   var rows = games.map(function(g){
     var info = gamePaidInfo(g,id), owed=g.each||0;
     var full = info.amount>0.001 && info.amount>=owed-0.001;
@@ -733,8 +738,24 @@ function openPlayerDetail(id){
     return row + (editing ? payEditRow(g,id) : '');
   }).join('');
   var s = S.stats[id] || {count:0, owed:0, paid:0, unpaid:0};
+  var bulkMethod = S.playerBulkMethod==='gcash' ? 'gcash' : 'cash';
+  var bulkBar = unpaidCount ? (
+    '<div class="pay-edit-row">' +
+      '<div class="pay-edit-name">Mark all '+unpaidCount+' unpaid game'+(unpaidCount===1?'':'s')+' as fully paid</div>' +
+      '<div class="pay-row-in">' +
+        '<div class="seg sm pay-method" role="group" aria-label="Payment method for all unpaid games">' +
+          '<button type="button" data-act="bulk-pay-method" data-v="cash" aria-pressed="'+(bulkMethod==='cash')+'">Cash</button>' +
+          '<button type="button" data-act="bulk-pay-method" data-v="gcash" aria-pressed="'+(bulkMethod==='gcash')+'">GCash</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="row">' +
+        '<button class="btn primary sm" type="button" data-act="mark-all-paid" data-id="'+esc(id)+'">'+(S.confirmBulkPay===id?'Tap again to confirm':'Mark all as paid')+'</button>' +
+      '</div>' +
+    '</div>'
+  ) : '';
   openSheet('<h2>'+esc(name)+'</h2>' +
     '<p class="hint">'+s.count+' game'+(s.count===1?'':'s')+' · '+peso(s.owed||0)+' owed total · '+peso(s.paid||0)+' paid total · '+balanceText(s.unpaid||0)+'</p>' +
+    bulkBar +
     (rows || '<p class="hint">No games recorded yet.</p>') +
     (games.length ? '<p class="hint">Tap a game to tag payment (Cash or GCash) and set the amount. A PIN is required to make changes.</p>' : '') +
     '<div class="row"><button class="btn ghost" data-act="close-player-detail">Close</button></div>');
@@ -1353,7 +1374,40 @@ document.addEventListener('click', async function(e){
     case 'toggle-hidden': S.showHidden=!S.showHidden; updateMemberList(); break;
     case 'open-rules': promptAdmin(openRules); break;
     case 'close-sheet': closeSheet(); break;
-    case 'close-player-detail': S.playerDetailId=null; S.payEdit=null; closeSheet(); break;
+    case 'close-player-detail': S.playerDetailId=null; S.payEdit=null; S.confirmBulkPay=null; closeSheet(); break;
+    case 'bulk-pay-method': S.playerBulkMethod = el.dataset.v==='gcash' ? 'gcash' : 'cash'; if(S.playerDetailId) openPlayerDetail(S.playerDetailId); break;
+    case 'mark-all-paid': {
+      var mapid=id;
+      if(S.confirmBulkPay!==mapid){
+        S.confirmBulkPay=mapid;
+        if(S.playerDetailId===mapid) openPlayerDetail(mapid);
+        setTimeout(function(){ if(S.confirmBulkPay===mapid){ S.confirmBulkPay=null; if(S.playerDetailId===mapid) openPlayerDetail(mapid); } }, 4000);
+        break;
+      }
+      promptAdmin(async function(){
+        var method = S.playerBulkMethod==='gcash' ? 'gcash' : 'cash';
+        var toUpdate = S.games.filter(function(g){ return (g.playerIds||[]).indexOf(mapid)!==-1; }).filter(function(g){
+          var info=gamePaidInfo(g,mapid), owed=g.each||0;
+          return !(info.amount>0.001 && info.amount>=owed-0.001);
+        });
+        S.confirmBulkPay=null;
+        if(!toUpdate.length){ if(S.playerDetailId===mapid) openPlayerDetail(mapid); return; }
+        try{
+          for(var bi=0; bi<toUpdate.length; bi++){
+            var bg=toUpdate[bi];
+            var paidObjB=Object.assign({}, bg.paid||{});
+            paidObjB[mapid]={amount: bg.each||0, method:method};
+            var ngB=Object.assign({}, bg, {paid:paidObjB});
+            delete ngB.paidIds;
+            await putGame(ngB);
+          }
+          computeStats(); S.payEdit=null;
+          if(S.playerDetailId===mapid) openPlayerDetail(mapid); else render();
+          toast('Marked '+toUpdate.length+' game'+(toUpdate.length===1?'':'s')+' as paid');
+        }catch(err){ saveError(); }
+      });
+      break;
+    }
     case 'lock-admin':
       try{ localStorage.removeItem(ADMIN_KEY); }catch(e){}
       toast('Locked. PIN required again for payments.'); updateHeader();
