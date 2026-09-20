@@ -148,6 +148,8 @@ input::placeholder{color:var(--muted);font-weight:500}
 .mh{margin-top:18px;margin-bottom:2px}
 .mh h2{font-size:15px;font-weight:800}
 .mh p{font-size:12px;font-weight:600;color:var(--muted)}
+.mh-sel{display:flex;gap:4px;margin-top:-2px}
+.mh-sel .link{padding:4px 4px 4px 0;font-size:12px}
 .g{background:var(--surface);border:1px solid var(--line);border-radius:16px;margin-top:10px;overflow:hidden}
 .g.selected{border-color:var(--lime)}
 .g-h{display:flex;align-items:stretch}
@@ -1131,6 +1133,20 @@ function selectionBar(){
     '</div>' +
   '</div>';
 }
+/* Per-month select all / unselect all, so a bulk court-fee update (or any
+   future bulk action) can be scoped to just one month's games instead of
+   picking through the whole list or using the global "Select all days". */
+function monthSelectControls(gs){
+  var ids = gs.map(function(g){ return g.id; });
+  var selectedCount = ids.filter(function(id){ return S.selectedGames.has(id); }).length;
+  var allSelected = selectedCount>0 && selectedCount===ids.length;
+  var noneSelected = selectedCount===0;
+  if(ids.length<2) return '';
+  return '<div class="mh-sel">' +
+    (!allSelected ? '<button class="link" type="button" data-act="select-all-month" data-id="'+esc(gs[0].date.slice(0,7))+'">Select all</button>' : '') +
+    (!noneSelected ? '<button class="link" type="button" data-act="clear-month-selection" data-id="'+esc(gs[0].date.slice(0,7))+'">Unselect all</button>' : '') +
+    '</div>';
+}
 function recordsHTML(){
   var games=S.games.slice().sort(function(a,b){return b.date.localeCompare(a.date);});
   if(!games.length){
@@ -1144,7 +1160,7 @@ function recordsHTML(){
     var gs=groups[k], sum=gs.reduce(function(a,g){return a+(g.total||0);},0);
     var paidSum=gs.reduce(function(a,g){ return a+(g.playerIds||[]).reduce(function(b,pid){ return b+gamePaidAmount(g,pid); },0); },0);
     var fundSum=Math.max(0, paidSum-sum);
-    html += '<div class="mh"><h2>'+esc(dfMonth.format(parseDate(k+'-01')))+'</h2><p>'+gs.length+' game'+(gs.length===1?'':'s')+' \u00B7 '+peso(sum)+' in court fees'+(fundSum>0.001?' \u00B7 +'+peso(Math.round(fundSum*100)/100)+' to fund':'')+'</p></div>';
+    html += '<div class="mh"><h2>'+esc(dfMonth.format(parseDate(k+'-01')))+'</h2><p>'+gs.length+' game'+(gs.length===1?'':'s')+' \u00B7 '+peso(sum)+' in court fees'+(fundSum>0.001?' \u00B7 +'+peso(Math.round(fundSum*100)/100)+' to fund':'')+'</p>'+monthSelectControls(gs)+'</div>';
     html += gs.map(gameCard).join('');
   });
   return html;
@@ -1558,6 +1574,18 @@ document.addEventListener('click', async function(e){
     }
     case 'clear-game-selection': S.selectedGames=new Set(); S.confirmBulkCourtFee=false; render(); break;
     case 'select-all-games': S.selectedGames=new Set(S.games.map(function(g){return g.id;})); render(); break;
+    case 'select-all-month': {
+      var monthKey=id;
+      S.games.forEach(function(g){ if(g.date.slice(0,7)===monthKey) S.selectedGames.add(g.id); });
+      S.confirmBulkCourtFee=false; render();
+      break;
+    }
+    case 'clear-month-selection': {
+      var monthKey2=id;
+      S.games.forEach(function(g){ if(g.date.slice(0,7)===monthKey2) S.selectedGames.delete(g.id); });
+      S.confirmBulkCourtFee=false; render();
+      break;
+    }
     case 'mark-selected-court-fee-paid': {
       if(!S.confirmBulkCourtFee){
         S.confirmBulkCourtFee=true; render();
