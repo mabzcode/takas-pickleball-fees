@@ -314,7 +314,7 @@ var S = {
   tab:'home', mode:'loading', ready:false, inited:false, db:null, downloads:null,
   members:[], games:[], settings:{rate:50,minFee:25,pin:''}, stats:{}, pendingAdminCb:null,
   date:todayStr(), courts:[1], ids:new Set(), loadedDate:null,
-  q:'', openGame:null, confirmDel:null, payEdit:null, openMember:null, showHidden:false, sortBy:'az', dirty:false
+  q:'', openGame:null, confirmDel:null, payEdit:null, openMember:null, playerDetailId:null, showHidden:false, sortBy:'az', dirty:false
 };
 
 /* ---------- fee math ---------- */
@@ -693,9 +693,11 @@ function homeShell(){
   return html;
 }
 function openPlayerDetail(id){
+  S.playerDetailId = id;
   var name = nameOf(id);
   var games = S.games.filter(function(g){ return (g.playerIds||[]).indexOf(id)!==-1; })
     .slice().sort(function(a,b){ return b.date.localeCompare(a.date); });
+  var editingGame = (S.payEdit && S.payEdit.id===id) ? S.payEdit.game : null;
   var rows = games.map(function(g){
     var info = gamePaidInfo(g,id), owed=g.each||0;
     var full = info.amount>0.001 && info.amount>=owed-0.001;
@@ -707,14 +709,18 @@ function openPlayerDetail(id){
     } else {
       statusLbl = 'Unpaid';
     }
-    return '<div class="bal-row"><span class="nm">'+esc(fmtDate(g.date))+'<small>'+courtsSummary(gameCourtHours(g))+'</small></span>' +
-      '<span class="bal-amt'+(full?'':' danger')+'">'+statusLbl+'</span></div>';
+    var editing = editingGame===g.id;
+    var row = '<button type="button" class="bal-row bal-row-btn" data-act="toggle-paid" data-id="'+esc(id)+'" data-game="'+esc(g.id)+'" aria-pressed="'+(info.amount>0.001)+'" aria-expanded="'+editing+'">' +
+      '<span class="nm">'+esc(fmtDate(g.date))+'<small>'+courtsSummary(gameCourtHours(g))+' · owes '+peso(owed)+'</small></span>' +
+      '<span class="bal-amt'+(full?'':' danger')+'">'+statusLbl+'</span></button>';
+    return row + (editing ? payEditRow(g,id) : '');
   }).join('');
   var s = S.stats[id] || {count:0, owed:0, paid:0, unpaid:0};
   openSheet('<h2>'+esc(name)+'</h2>' +
     '<p class="hint">'+s.count+' game'+(s.count===1?'':'s')+' · '+peso(s.owed||0)+' owed total · '+peso(s.paid||0)+' paid total · '+balanceText(s.unpaid||0)+'</p>' +
     (rows || '<p class="hint">No games recorded yet.</p>') +
-    '<div class="row"><button class="btn ghost" data-act="close-sheet">Close</button></div>');
+    (games.length ? '<p class="hint">Tap a game to tag payment (Cash or GCash) and set the amount. A PIN is required to make changes.</p>' : '') +
+    '<div class="row"><button class="btn ghost" data-act="close-player-detail">Close</button></div>');
 }
 
 /* --- game tab --- */
@@ -1122,7 +1128,7 @@ document.addEventListener('click', async function(e){
           var defAmt = infoO.amount>0.001 ? infoO.amount : (gmO?(gmO.each||0):0);
           S.payEdit={game:gid, id:tpid, amount:defAmt, method:infoO.method};
         }
-        render();
+        if(S.playerDetailId===tpid) openPlayerDetail(tpid); else render();
       });
       break;
     }
@@ -1135,7 +1141,7 @@ document.addEventListener('click', async function(e){
       }
       break;
     }
-    case 'cancel-pay-inline': S.payEdit=null; render(); break;
+    case 'cancel-pay-inline': S.payEdit=null; if(S.playerDetailId) openPlayerDetail(S.playerDetailId); else render(); break;
     case 'mark-unpaid-inline': {
       var mgid=el.dataset.game, mpid=id;
       promptAdmin(async function(){
@@ -1145,7 +1151,11 @@ document.addEventListener('click', async function(e){
         paidObjM[mpid]={amount:0, method:gamePaidMethod(mgm,mpid)};
         var ngM=Object.assign({}, mgm, {paid:paidObjM});
         delete ngM.paidIds;
-        try{ await putGame(ngM); computeStats(); S.payEdit=null; render(); toast('Marked unpaid'); }
+        try{
+          await putGame(ngM); computeStats(); S.payEdit=null;
+          if(S.playerDetailId===mpid) openPlayerDetail(mpid); else render();
+          toast('Marked unpaid');
+        }
         catch(err){ saveError(); }
       });
       break;
@@ -1162,7 +1172,11 @@ document.addEventListener('click', async function(e){
         paidObjS[spid]={amount:Math.round(v*100)/100, method:method2};
         var ngS=Object.assign({}, sgm2, {paid:paidObjS});
         delete ngS.paidIds;
-        try{ await putGame(ngS); computeStats(); S.payEdit=null; render(); toast('Payment saved'); }
+        try{
+          await putGame(ngS); computeStats(); S.payEdit=null;
+          if(S.playerDetailId===spid) openPlayerDetail(spid); else render();
+          toast('Payment saved');
+        }
         catch(err){ saveError(); }
       });
       break;
@@ -1255,6 +1269,7 @@ document.addEventListener('click', async function(e){
     case 'toggle-hidden': S.showHidden=!S.showHidden; updateMemberList(); break;
     case 'open-rules': promptAdmin(openRules); break;
     case 'close-sheet': closeSheet(); break;
+    case 'close-player-detail': S.playerDetailId=null; S.payEdit=null; closeSheet(); break;
     case 'lock-admin':
       try{ localStorage.removeItem(ADMIN_KEY); }catch(e){}
       toast('Locked. PIN required again for payments.'); updateHeader();
