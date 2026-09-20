@@ -564,6 +564,17 @@ function openingUnpaidFor(id){
   var ob=openingBalance();
   return (ob && ob.playerUnpaid && +ob.playerUnpaid[id]>0) ? +ob.playerUnpaid[id] : 0;
 }
+/* The player's total dues/paid as of the opening-balance date (e.g. up to
+   Aug 2026) — kept separate from what's been tracked in-app since, so both
+   figures can be shown side by side rather than merged together. */
+function openingDuesFor(id){
+  var ob=openingBalance();
+  return (ob && ob.playerDues && ob.playerDues[id]!=null) ? +ob.playerDues[id] : null;
+}
+function openingPaidFor(id){
+  var ob=openingBalance();
+  return (ob && ob.playerPaid && ob.playerPaid[id]!=null) ? +ob.playerPaid[id] : null;
+}
 function computeStats(){
   var st={};
   S.games.forEach(function(g){
@@ -860,8 +871,19 @@ function openPlayerDetail(id){
       '<button class="btn primary sm" type="button" data-act="mark-opening-paid" data-id="'+esc(id)+'">'+(S.confirmOpeningPaid===id?'Tap again to confirm':'Mark opening balance as paid')+'</button>' +
     '</div>'
   ) : '';
+  var obDues = openingDuesFor(id), obPaidTotal = openingPaidFor(id);
+  var obSummary = obDues!=null ? (
+    '<p class="hint">As of Aug 2026 (before tracking): '+peso(obDues)+' dues · '+peso(obPaidTotal||0)+' paid'+(obAmt>0.001?' · '+peso(obAmt)+' unpaid':' · fully paid')+'</p>'
+  ) : '';
+  /* In-app figures computed directly from this player's recorded games, so
+     they stay separate from the Aug opening balance above rather than the
+     merged lifetime numbers used elsewhere (Home's all-time totals). */
+  var inAppOwed = Math.round(games.reduce(function(a,g){ return a+(g.each||0); },0)*100)/100;
+  var inAppPaid = Math.round(games.reduce(function(a,g){ return a+gamePaidAmount(g,id); },0)*100)/100;
+  var inAppUnpaid = Math.round((inAppOwed-inAppPaid)*100)/100;
   openSheet('<h2>'+esc(name)+'</h2>' +
-    '<p class="hint">'+s.count+' game'+(s.count===1?'':'s')+' · '+peso(s.owed||0)+' owed total · '+peso(s.paid||0)+' paid total · '+balanceText(s.unpaid||0)+'</p>' +
+    obSummary +
+    '<p class="hint">Since Sept 2026: '+s.count+' game'+(s.count===1?'':'s')+' · '+peso(inAppOwed)+' owed · '+peso(inAppPaid)+' paid · '+balanceText(inAppUnpaid)+'</p>' +
     selectBar +
     obRow +
     (rows || '<p class="hint">No games recorded yet.</p>') +
