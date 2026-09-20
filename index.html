@@ -160,8 +160,13 @@ input::placeholder{color:var(--muted);font-weight:500}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border-radius:999px;background:var(--surface);border:1.5px solid var(--line-strong);font-size:12px;font-weight:700;color:var(--muted)}
 .chip.paid{background:var(--sel);border-color:var(--sel-line);color:var(--ink)}
+.chip.editing{border-color:var(--focus);color:var(--ink)}
 .chip svg{flex:none}
 .paid-hint{font-size:11px;font-weight:600;color:var(--muted);margin-top:8px}
+.pay-edit-row{margin-top:10px;padding:10px;border-radius:12px;border:1.5px solid var(--line-strong);background:var(--bg)}
+.pay-edit-name{font-size:12px;font-weight:700;margin-bottom:8px}
+.pay-edit-row .row{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+.seg.sm.pay-method{grid-template-columns:repeat(2,1fr)}
 .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .add-row{display:flex;gap:8px}
 .add-row input{flex:1;min-width:0}
@@ -305,7 +310,7 @@ var S = {
   tab:'home', mode:'loading', ready:false, inited:false, db:null, downloads:null,
   members:[], games:[], settings:{rate:50,minFee:25,pin:''}, stats:{}, pendingAdminCb:null,
   date:todayStr(), courts:[1], ids:new Set(), loadedDate:null,
-  q:'', openGame:null, confirmDel:null, openMember:null, showHidden:false, sortBy:'az', dirty:false
+  q:'', openGame:null, confirmDel:null, payEdit:null, openMember:null, showHidden:false, sortBy:'az', dirty:false
 };
 
 /* ---------- fee math ---------- */
@@ -586,7 +591,7 @@ function updateHeader(){
   if(al) al.innerHTML = isUnlocked() ? ('Unlocked for payments on this device \u00B7 <button type="button" data-act="lock-admin">Lock</button>') : '';
 }
 function setTab(t){
-  S.tab=t; S.confirmDel=null;
+  S.tab=t; S.confirmDel=null; S.payEdit=null;
   $$('.tabs button').forEach(function(b){ if(b.dataset.tab===t) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
   render();
   window.scrollTo(0,0);
@@ -828,6 +833,26 @@ function recordsHTML(){
   });
   return html;
 }
+function payEditRow(g, id){
+  var info=gamePaidInfo(g,id);
+  var amount = info.amount>0.001 ? info.amount : (g.each||0);
+  var method = info.method==='gcash' ? 'gcash' : 'cash';
+  return '<div class="pay-edit-row" data-method="'+method+'">' +
+    '<div class="pay-edit-name">Tagging <b>'+esc(nameOf(id))+'</b> · owes '+peso(g.each||0)+'</div>' +
+    '<div class="pay-row-in">' +
+      '<input id="payAmt" type="number" inputmode="decimal" min="0" step="any" value="'+amount+'" aria-label="Amount paid">' +
+      '<div class="seg sm pay-method" role="group" aria-label="Payment method">' +
+        '<button type="button" data-act="pay-method" data-v="cash" aria-pressed="'+(method==='cash')+'">Cash</button>' +
+        '<button type="button" data-act="pay-method" data-v="gcash" aria-pressed="'+(method==='gcash')+'">GCash</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="row">' +
+      '<button class="btn ghost sm" type="button" data-act="cancel-pay-inline">Cancel</button>' +
+      '<button class="btn ghost sm danger" type="button" data-act="mark-unpaid-inline" data-id="'+esc(id)+'" data-game="'+esc(g.id)+'">Mark unpaid</button>' +
+      '<button class="btn primary sm" type="button" data-act="save-pay-inline" data-id="'+esc(id)+'" data-game="'+esc(g.id)+'">Save</button>' +
+    '</div>' +
+  '</div>';
+}
 function gameCard(g){
   var ids=g.playerIds||[], n=ids.length, open=S.openGame===g.id;
   var body='';
@@ -835,14 +860,16 @@ function gameCard(g){
     var sorted = ids.slice().sort(function(a,b){return cmpName(nameOf(a),nameOf(b));});
     var paidCount = sorted.filter(function(id){ var a=gamePaidAmount(g,id); return a>0.001 && a>=(g.each||0)-0.001; }).length;
     var confirm = S.confirmDel===g.id;
+    var editingId = (S.payEdit && S.payEdit.game===g.id) ? S.payEdit.id : null;
     body = '<div class="g-b"><p class="sum">'+peso(g.total)+' court fee \u00F7 '+n+' player'+(n===1?'':'s')+' \u00B7 '+peso(g.each||0)+' each \u00B7 '+paidCount+' of '+n+' fully paid</p>' +
       '<div class="chips">'+sorted.map(function(id){
         var amt=gamePaidAmount(g,id);
         var full = amt>0.001 && amt>=(g.each||0)-0.001;
         var label=esc(nameOf(id))+(amt>0.001?' \u00B7 '+peso(amt):'');
-        return '<button type="button" class="chip'+(full?' paid':'')+'" data-act="toggle-paid" data-id="'+esc(id)+'" data-game="'+esc(g.id)+'" aria-pressed="'+(amt>0.001)+'">'+(full?ICON.check:'')+label+'</button>';
+        return '<button type="button" class="chip'+(full?' paid':'')+(id===editingId?' editing':'')+'" data-act="toggle-paid" data-id="'+esc(id)+'" data-game="'+esc(g.id)+'" aria-pressed="'+(amt>0.001)+'" aria-expanded="'+(id===editingId)+'">'+(full?ICON.check:'')+label+'</button>';
       }).join('')+'</div>' +
-      '<p class="paid-hint">Tap a name for a quick paid/unpaid toggle, or edit amounts for partial payments and overpayments. A PIN is required to make changes.</p>' +
+      (editingId ? payEditRow(g, editingId) : '') +
+      '<p class="paid-hint">Tap a name to tag payment (with Cash or GCash) and set the amount \u2014 the exact figure paid is editable anytime. A PIN is required to make changes.</p>' +
       '<div class="acts"><button class="btn ghost sm" data-act="edit-paid" data-id="'+esc(g.id)+'">Edit amounts</button>' +
       '<button class="btn primary sm" data-act="edit-game" data-id="'+esc(g.id)+'">Edit record</button>' +
       '<button class="btn ghost sm" data-act="copy-game" data-id="'+esc(g.id)+'">'+ICON.copy+'Copy summary</button>' +
@@ -1069,16 +1096,49 @@ document.addEventListener('click', async function(e){
     case 'open-game': S.openGame = (S.openGame===id ? null : id); S.confirmDel=null; render(); break;
     case 'toggle-paid': {
       var gid=el.dataset.game, tpid=id;
+      promptAdmin(function(){
+        S.payEdit = (S.payEdit && S.payEdit.game===gid && S.payEdit.id===tpid) ? null : {game:gid, id:tpid};
+        render();
+      });
+      break;
+    }
+    case 'pay-method': {
+      var row=el.closest('.pay-edit-row');
+      if(row){
+        row.dataset.method = el.dataset.v;
+        Array.from(el.parentElement.children).forEach(function(b){ b.setAttribute('aria-pressed', String(b===el)); });
+      }
+      break;
+    }
+    case 'cancel-pay-inline': S.payEdit=null; render(); break;
+    case 'mark-unpaid-inline': {
+      var mgid=el.dataset.game, mpid=id;
       promptAdmin(async function(){
-        var gm=S.games.find(function(x){return x.id===gid;});
-        if(!gm) return;
-        var curAmt=gamePaidAmount(gm,tpid);
-        var isFull=curAmt>0.001 && curAmt>=(gm.each||0)-0.001;
-        var paidObj=Object.assign({}, gm.paid||{});
-        paidObj[tpid]=isFull ? {amount:0, method:gamePaidMethod(gm,tpid)} : {amount:(gm.each||0), method:'cash'};
-        var ng=Object.assign({}, gm, {paid:paidObj});
-        delete ng.paidIds;
-        try{ await putGame(ng); computeStats(); render(); }
+        var mgm=S.games.find(function(x){return x.id===mgid;});
+        if(!mgm) return;
+        var paidObjM=Object.assign({}, mgm.paid||{});
+        paidObjM[mpid]={amount:0, method:gamePaidMethod(mgm,mpid)};
+        var ngM=Object.assign({}, mgm, {paid:paidObjM});
+        delete ngM.paidIds;
+        try{ await putGame(ngM); computeStats(); S.payEdit=null; render(); toast('Marked unpaid'); }
+        catch(err){ saveError(); }
+      });
+      break;
+    }
+    case 'save-pay-inline': {
+      var sgid2=el.dataset.game, spid=id;
+      promptAdmin(async function(){
+        var sgm2=S.games.find(function(x){return x.id===sgid2;});
+        if(!sgm2) return;
+        var amtIn=$('#payAmt'); var v=amtIn?parseFloat(amtIn.value):0;
+        if(!(v>=0)) v=0;
+        var row2=$('.pay-edit-row');
+        var method2=(row2 && row2.dataset.method==='gcash') ? 'gcash' : 'cash';
+        var paidObjS=Object.assign({}, sgm2.paid||{});
+        paidObjS[spid]={amount:Math.round(v*100)/100, method:method2};
+        var ngS=Object.assign({}, sgm2, {paid:paidObjS});
+        delete ngS.paidIds;
+        try{ await putGame(ngS); computeStats(); S.payEdit=null; render(); toast('Payment saved'); }
         catch(err){ saveError(); }
       });
       break;
