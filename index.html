@@ -682,7 +682,7 @@ function computeMonthly(){
     mo.fund=Math.max(0, Math.round((mo.paid-mo.total)*100)/100);
     mo.venuePaid=Math.round(mo.venuePaid*100)/100;
     mo.venuePayable=Math.max(0, Math.round((mo.total-mo.venuePaid)*100)/100);
-    /* Total collectible is what players actually owe (after rounding/minimum
+    /* Total dues is what players actually owe (after rounding/minimum
        fee), which can be a little more than the true court fee. */
     mo.collectible=Math.round((mo.paid+mo.unpaid)*100)/100;
     /* Cash on hand: money actually collected from players, minus whatever of
@@ -697,7 +697,7 @@ function monthRow(m){
   return '<div class="month-row"><div class="month-row-h"><b>'+esc(m.label)+'</b><span>'+m.days+' day'+(m.days===1?'':'s')+' played</span></div>' +
     '<div class="month-sec-h">Collections</div>' +
     '<div class="month-row-g">' +
-      '<div><span class="mrl">Total collectible</span><b>'+peso(m.collectible)+'</b></div>' +
+      '<div><span class="mrl">Total dues</span><b>'+peso(m.collectible)+'</b></div>' +
       '<div><span class="mrl">Paid</span><b>'+peso(m.paid)+'</b></div>' +
       '<div><span class="mrl">Unpaid</span><b'+(m.unpaid>0.001?' class="danger"':'')+'>'+peso(m.unpaid)+'</b></div>' +
     '</div>' +
