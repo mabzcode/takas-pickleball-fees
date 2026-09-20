@@ -150,7 +150,10 @@ input::placeholder{color:var(--muted);font-weight:500}
 .g-b{padding:0 14px 14px;border-top:1px solid var(--line)}
 .g-b .sum{font-size:12px;font-weight:600;color:var(--muted);margin:12px 0 10px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{padding:5px 11px;border-radius:999px;background:var(--sel);border:1px solid var(--sel-line);font-size:12px;font-weight:700}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border-radius:999px;background:var(--surface);border:1.5px solid var(--line-strong);font-size:12px;font-weight:700;color:var(--muted)}
+.chip.paid{background:var(--sel);border-color:var(--sel-line);color:var(--ink)}
+.chip svg{flex:none}
+.paid-hint{font-size:11px;font-weight:600;color:var(--muted);margin-top:8px}
 .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .add-row{display:flex;gap:8px}
 .add-row input{flex:1;min-width:0}
@@ -162,6 +165,13 @@ input::placeholder{color:var(--muted);font-weight:500}
 .m-b{padding:0 14px 14px;border-top:1px solid var(--line)}
 .m-b .add-row{margin-top:14px}
 .m-b .acts{margin-top:10px}
+
+/* balances */
+.bal-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.bal-row:first-child{border-top:0}
+.bal-row .nm{font-weight:700}
+.bal-amt{font-size:13px;font-weight:800;color:var(--muted)}
+.bal-amt.danger{color:var(--danger)}
 
 /* bars */
 .savebar{position:fixed;left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom));z-index:15;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px}
@@ -414,11 +424,16 @@ function loadGame(g){
 function computeStats(){
   var st={};
   S.games.forEach(function(g){
+    var paidSet = new Set(g.paidIds||[]);
     (g.playerIds||[]).forEach(function(id){
-      var s = st[id] || (st[id]={count:0,paid:0,last:''});
-      s.count++; s.paid += (g.each||0);
+      var s = st[id] || (st[id]={count:0,owed:0,paid:0,unpaid:0,last:''});
+      s.count++; s.owed += (g.each||0);
+      if(paidSet.has(id)) s.paid += (g.each||0);
       if(g.date>s.last) s.last=g.date;
     });
+  });
+  Object.keys(st).forEach(function(id){
+    st[id].unpaid = Math.max(0, Math.round((st[id].owed - st[id].paid)*100)/100);
   });
   S.stats=st;
 }
@@ -480,11 +495,30 @@ function gameShell(){
     '<input type="search" id="q" placeholder="Search or add a player" autocomplete="off" enterkeyhint="done" aria-label="Search or add a player" value="'+esc(S.q)+'">' +
     '<div id="roster" role="group" aria-label="Players" style="margin-top:10px"></div>' +
     '<div class="foot"><button class="link" data-act="clear-all">Clear all</button></div>' +
+  '</section>' +
+  '<section class="card" aria-label="Player balances">' +
+    '<div class="sec-h"><h2>Balances</h2><span class="count" id="balCount"></span></div>' +
+    '<div id="balances"></div>' +
   '</section>';
 }
 function refreshGame(){
   if(!$('#fee')) return;
-  updateWhen(); updateFee(); updateRoster(); updateSaveBar();
+  updateWhen(); updateFee(); updateRoster(); updateSaveBar(); updateBalances();
+}
+function updateBalances(){
+  var el=$('#balances'); if(!el) return;
+  var rows = Object.keys(S.stats)
+    .filter(function(id){ return S.stats[id].count>0; })
+    .map(function(id){ return Object.assign({id:id, name:nameOf(id)}, S.stats[id]); });
+  var cnt=$('#balCount');
+  var totalUnpaid = rows.reduce(function(a,r){return a+r.unpaid;},0);
+  if(cnt) cnt.textContent = totalUnpaid>0.001 ? peso(totalUnpaid)+' owed' : 'All settled';
+  if(!rows.length){ el.innerHTML='<p class="hint">Balances show up here once games are saved.</p>'; return; }
+  rows.sort(function(a,b){ if(Math.abs(b.unpaid-a.unpaid)>0.001) return b.unpaid-a.unpaid; return cmpName(a.name,b.name); });
+  el.innerHTML = rows.map(function(r){
+    var owes = r.unpaid>0.001;
+    return '<div class="bal-row"><span class="nm">'+esc(r.name)+'</span><span class="bal-amt'+(owes?' danger':'')+'">'+(owes?peso(r.unpaid)+' unpaid':'Paid up')+'</span></div>';
+  }).join('');
 }
 function updateWhen(){
   var d=$('#date'); if(!d) return;
@@ -565,17 +599,24 @@ function gameCard(g){
   var ids=g.playerIds||[], n=ids.length, open=S.openGame===g.id;
   var body='';
   if(open){
-    var names=ids.map(nameOf).sort(cmpName);
+    var paidSet = new Set(g.paidIds||[]);
+    var sorted = ids.slice().sort(function(a,b){return cmpName(nameOf(a),nameOf(b));});
+    var paidCount = sorted.filter(function(id){return paidSet.has(id);}).length;
     var confirm = S.confirmDel===g.id;
-    body = '<div class="g-b"><p class="sum">'+peso(g.total)+' court fee \u00F7 '+n+' player'+(n===1?'':'s')+' \u00B7 collected '+peso((g.each||0)*n)+'</p>' +
-      '<div class="chips">'+names.map(function(x){return '<span class="chip">'+esc(x)+'</span>';}).join('')+'</div>' +
+    body = '<div class="g-b"><p class="sum">'+peso(g.total)+' court fee \u00F7 '+n+' player'+(n===1?'':'s')+' \u00B7 '+peso(g.each||0)+' each \u00B7 '+paidCount+' of '+n+' paid</p>' +
+      '<div class="chips">'+sorted.map(function(id){
+        var isPaid=paidSet.has(id);
+        return '<button type="button" class="chip'+(isPaid?' paid':'')+'" data-act="toggle-paid" data-id="'+esc(id)+'" data-game="'+esc(g.id)+'" aria-pressed="'+isPaid+'">'+(isPaid?ICON.check:'')+esc(nameOf(id))+'</button>';
+      }).join('')+'</div>' +
+      '<p class="paid-hint">Tap a name to mark it paid or unpaid.</p>' +
       '<div class="acts"><button class="btn primary sm" data-act="edit-game" data-id="'+esc(g.id)+'">Edit record</button>' +
       '<button class="btn ghost sm" data-act="copy-game" data-id="'+esc(g.id)+'">'+ICON.copy+'Copy summary</button>' +
       '<button class="btn ghost sm danger" data-act="del-game" data-id="'+esc(g.id)+'">'+(confirm?'Tap again to delete':'Delete')+'</button></div></div>';
   }
+  var paidN=(g.paidIds||[]).filter(function(id){return ids.indexOf(id)!==-1;}).length;
   return '<article class="g'+(open?' open':'')+'"><button class="g-h" data-act="open-game" data-id="'+esc(g.id)+'" aria-expanded="'+open+'">' +
     '<span class="g-l"><b>'+esc(fmtDate(g.date))+'</b><span>'+fmtHrs(g.hours)+' \u00B7 '+courtsLbl(g.courts)+' \u00B7 '+n+' player'+(n===1?'':'s')+'</span></span>' +
-    '<span class="g-r"><b>'+peso(g.each||0)+'</b><span>each \u00B7 '+peso(g.total||0)+' total</span></span>' +
+    '<span class="g-r"><b>'+peso(g.each||0)+'</b><span>each \u00B7 '+paidN+'/'+n+' paid</span></span>' +
     '<span class="chev">'+ICON.chev+'</span></button>'+body+'</article>';
 }
 
@@ -611,7 +652,8 @@ function updateMemberList(){
 function memberSub(id){
   var s=S.stats[id];
   if(!s||!s.count) return 'No games yet';
-  return s.count+(s.count===1?' game':' games')+' \u00B7 '+peso(s.paid)+' paid \u00B7 last played '+fmtShort(s.last);
+  var bal = s.unpaid>0.001 ? peso(s.unpaid)+' unpaid' : 'All paid up';
+  return s.count+(s.count===1?' game':' games')+' \u00B7 '+bal+' \u00B7 last played '+fmtShort(s.last);
 }
 function memberRow(m){
   var open=S.openMember===m.id;
@@ -683,11 +725,12 @@ async function saveGame(){
   S.busy=true;
   var c=curCalc();
   var ex=S.games.find(function(g){return g.id===S.date;});
-  var g={id:S.date,date:S.date,hours:S.hours,courts:S.courts,playerIds:ids,total:c.total,each:c.each,rate:S.settings.rate,minFee:S.settings.minFee,createdAt:(ex&&ex.createdAt)||Date.now(),updatedAt:Date.now()};
+  var keptPaid=((ex&&ex.paidIds)||[]).filter(function(id){return ids.indexOf(id)!==-1;});
+  var g={id:S.date,date:S.date,hours:S.hours,courts:S.courts,playerIds:ids,paidIds:keptPaid,total:c.total,each:c.each,rate:S.settings.rate,minFee:S.settings.minFee,createdAt:(ex&&ex.createdAt)||Date.now(),updatedAt:Date.now()};
   try{
     await putGame(g);
     S.loadedDate=S.date; computeStats(); saveDraft();
-    updateWhen(); updateRoster(); updateSaveBar();
+    updateWhen(); updateRoster(); updateSaveBar(); updateBalances();
     toast((ex?'Record updated':'Game saved')+' \u00B7 '+peso(c.each)+' each');
   }catch(e){ saveError(); }
   S.busy=false;
@@ -695,10 +738,12 @@ async function saveGame(){
 function csvCell(v){ v=String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 async function exportCsv(){
   if(!S.downloads) return;
-  var rows=[['Date','Hours','Courts','Court fee total','Each pays','Players','Names']];
+  var rows=[['Date','Hours','Courts','Court fee total','Each pays','Players','Names','Paid','Unpaid']];
   S.games.slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(g){
-    var ids=g.playerIds||[];
-    rows.push([g.date,g.hours,g.courts,g.total,g.each,ids.length,ids.map(nameOf).sort(cmpName).join('; ')]);
+    var ids=g.playerIds||[]; var paidSet=new Set(g.paidIds||[]);
+    var paidNames=ids.filter(function(id){return paidSet.has(id);}).map(nameOf).sort(cmpName);
+    var unpaidNames=ids.filter(function(id){return !paidSet.has(id);}).map(nameOf).sort(cmpName);
+    rows.push([g.date,g.hours,g.courts,g.total,g.each,ids.length,ids.map(nameOf).sort(cmpName).join('; '),paidNames.join('; '),unpaidNames.join('; ')]);
   });
   var csv='\uFEFF'+rows.map(function(r){return r.map(csvCell).join(',');}).join('\n');
   try{ await S.downloads.save({filename:'takas-pickleball-records.csv', data:csv}); }
@@ -744,6 +789,17 @@ document.addEventListener('click', async function(e){
       shareText(summary(S.date,S.hours,S.courts,ids,c.each,c.total,S.settings.rate)); break;
     }
     case 'open-game': S.openGame = (S.openGame===id ? null : id); S.confirmDel=null; render(); break;
+    case 'toggle-paid': {
+      var gid=el.dataset.game;
+      var gm=S.games.find(function(x){return x.id===gid;});
+      if(!gm) break;
+      var paidSet=new Set(gm.paidIds||[]);
+      if(paidSet.has(id)) paidSet.delete(id); else paidSet.add(id);
+      var ng=Object.assign({}, gm, {paidIds:Array.from(paidSet)});
+      try{ await putGame(ng); computeStats(); render(); }
+      catch(err){ saveError(); }
+      break;
+    }
     case 'edit-game': {
       var g=S.games.find(function(x){return x.id===id;});
       if(g){ loadGame(g); saveDraft(); setTab('game'); toast('Record loaded. Make changes, then tap Update record.'); }
