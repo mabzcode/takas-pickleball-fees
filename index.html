@@ -770,7 +770,7 @@ function openPlayerDetail(id){
         (unpaidIds.length && !allUnpaidSelected ? '<button class="link" type="button" data-act="select-all-unpaid" data-id="'+esc(id)+'">Select all</button>' : '') +
       '</div>' +
       '<div class="row">' +
-        '<button class="btn ghost sm" type="button" data-act="clear-player-game-selection">Clear</button>' +
+        '<button class="btn ghost sm" type="button" data-act="clear-player-game-selection">Unselect All</button>' +
         '<button class="btn primary sm" type="button" data-act="mark-selected-player-paid" data-id="'+esc(id)+'">'+(S.confirmBulkPay===id?'Tap again to confirm':'Mark selected as paid')+'</button>' +
       '</div>' +
     '</div>'
@@ -1457,8 +1457,11 @@ document.addEventListener('click', async function(e){
     case 'open-member': S.openMember = (S.openMember===id ? null : id); updateMemberList(); { var ri=$('#renameIn'); if(ri) ri.focus(); } break;
     case 'rename': await doRename(id); break;
     case 'remove-member': {
-      var m=S.members.find(function(x){return x.id===id;});
-      if(m){ try{ await putMember(Object.assign({},m,{active:false})); S.ids.delete(id); S.openMember=null; saveDraft(); updateMemberList(); toast(m.name+' removed from the roster.'); }catch(err){ saveError(); } }
+      var rmid=id;
+      promptAdmin(async function(){
+        var m=S.members.find(function(x){return x.id===rmid;});
+        if(m){ try{ await putMember(Object.assign({},m,{active:false})); S.ids.delete(rmid); S.openMember=null; saveDraft(); updateMemberList(); toast(m.name+' removed from the roster.'); }catch(err){ saveError(); } }
+      });
       break;
     }
     case 'restore-member': {
