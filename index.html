@@ -172,6 +172,7 @@ input::placeholder{color:var(--muted);font-weight:500}
 .bal-row .nm{font-weight:700}
 .bal-amt{font-size:13px;font-weight:800;color:var(--muted)}
 .bal-amt.danger{color:var(--danger)}
+.bal-amt.credit{color:var(--sel-line)}
 
 /* bars */
 .savebar{position:fixed;left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom));z-index:15;background:var(--bg);border-top:1px solid var(--line);padding:10px 16px}
@@ -278,6 +279,11 @@ function calc(hours, courts, n, s){
 function presentIds(){ return Array.from(S.ids).filter(function(id){ return S.members.some(function(m){return m.id===id;}); }); }
 function nameOf(id){ var m=S.members.find(function(x){return x.id===id;}); return m ? m.name : 'Unknown player'; }
 function curCalc(){ return calc(S.hours, S.courts, presentIds().length, S.settings); }
+function gamePaidAmount(g, id){
+  if(g && g.paid && Object.prototype.hasOwnProperty.call(g.paid, id)) return +g.paid[id] || 0;
+  if(g && g.paidIds && g.paidIds.indexOf(id)!==-1) return g.each||0; /* legacy paid/unpaid data */
+  return 0;
+}
 
 /* ---------- storage ---------- */
 function loadLocal(){
@@ -424,16 +430,15 @@ function loadGame(g){
 function computeStats(){
   var st={};
   S.games.forEach(function(g){
-    var paidSet = new Set(g.paidIds||[]);
     (g.playerIds||[]).forEach(function(id){
       var s = st[id] || (st[id]={count:0,owed:0,paid:0,unpaid:0,last:''});
       s.count++; s.owed += (g.each||0);
-      if(paidSet.has(id)) s.paid += (g.each||0);
+      s.paid += gamePaidAmount(g, id);
       if(g.date>s.last) s.last=g.date;
     });
   });
   Object.keys(st).forEach(function(id){
-    st[id].unpaid = Math.max(0, Math.round((st[id].owed - st[id].paid)*100)/100);
+    st[id].unpaid = Math.round((st[id].owed - st[id].paid)*100)/100;
   });
   S.stats=st;
 }
@@ -511,13 +516,14 @@ function updateBalances(){
     .filter(function(id){ return S.stats[id].count>0; })
     .map(function(id){ return Object.assign({id:id, name:nameOf(id)}, S.stats[id]); });
   var cnt=$('#balCount');
-  var totalUnpaid = rows.reduce(function(a,r){return a+r.unpaid;},0);
-  if(cnt) cnt.textContent = totalUnpaid>0.001 ? peso(totalUnpaid)+' owed' : 'All settled';
+  var totalOwed = rows.reduce(function(a,r){return a+Math.max(0,r.unpaid);},0);
+  var totalCredit = rows.reduce(function(a,r){return a+Math.max(0,-r.unpaid);},0);
+  if(cnt) cnt.textContent = totalOwed>0.001 ? peso(totalOwed)+' owed' : (totalCredit>0.001 ? peso(totalCredit)+' in credit' : 'All settled');
   if(!rows.length){ el.innerHTML='<p class="hint">Balances show up here once games are saved.</p>'; return; }
   rows.sort(function(a,b){ if(Math.abs(b.unpaid-a.unpaid)>0.001) return b.unpaid-a.unpaid; return cmpName(a.name,b.name); });
   el.innerHTML = rows.map(function(r){
-    var owes = r.unpaid>0.001;
-    return '<div class="bal-row"><span class="nm">'+esc(r.name)+'</span><span class="bal-amt'+(owes?' danger':'')+'">'+(owes?peso(r.unpaid)+' unpaid':'Paid up')+'</span></div>';
+    var owes = r.unpaid>0.001, credit = r.unpaid<-0.001;
+    return '<div class="bal-row"><span class="nm">'+esc(r.name)+'</span><span class="bal-amt'+(owes?' danger':(credit?' credit':''))+'">'+balanceText(r.unpaid)+'</span></div>';
   }).join('');
 }
 function updateWhen(){
@@ -599,21 +605,23 @@ function gameCard(g){
   var ids=g.playerIds||[], n=ids.length, open=S.openGame===g.id;
   var body='';
   if(open){
-    var paidSet = new Set(g.paidIds||[]);
     var sorted = ids.slice().sort(function(a,b){return cmpName(nameOf(a),nameOf(b));});
-    var paidCount = sorted.filter(function(id){return paidSet.has(id);}).length;
+    var paidCount = sorted.filter(function(id){ var a=gamePaidAmount(g,id); return a>0.001 && a>=(g.each||0)-0.001; }).length;
     var confirm = S.confirmDel===g.id;
-    body = '<div class="g-b"><p class="sum">'+peso(g.total)+' court fee \u00F7 '+n+' player'+(n===1?'':'s')+' \u00B7 '+peso(g.each||0)+' each \u00B7 '+paidCount+' of '+n+' paid</p>' +
+    body = '<div class="g-b"><p class="sum">'+peso(g.total)+' court fee \u00F7 '+n+' player'+(n===1?'':'s')+' \u00B7 '+peso(g.each||0)+' each \u00B7 '+paidCount+' of '+n+' fully paid</p>' +
       '<div class="chips">'+sorted.map(function(id){
-        var isPaid=paidSet.has(id);
-        return '<button type="button" class="chip'+(isPaid?' paid':'')+'" data-act="toggle-paid" data-id="'+esc(id)+'" data-game="'+esc(g.id)+'" aria-pressed="'+isPaid+'">'+(isPaid?ICON.check:'')+esc(nameOf(id))+'</button>';
+        var amt=gamePaidAmount(g,id);
+        var full = amt>0.001 && amt>=(g.each||0)-0.001;
+        var label=esc(nameOf(id))+(amt>0.001?' \u00B7 '+peso(amt):'');
+        return '<button type="button" class="chip'+(full?' paid':'')+'" data-act="toggle-paid" data-id="'+esc(id)+'" data-game="'+esc(g.id)+'" aria-pressed="'+(amt>0.001)+'">'+(full?ICON.check:'')+label+'</button>';
       }).join('')+'</div>' +
-      '<p class="paid-hint">Tap a name to mark it paid or unpaid.</p>' +
-      '<div class="acts"><button class="btn primary sm" data-act="edit-game" data-id="'+esc(g.id)+'">Edit record</button>' +
+      '<p class="paid-hint">Tap a name for a quick paid/unpaid toggle, or edit amounts for partial payments and overpayments.</p>' +
+      '<div class="acts"><button class="btn ghost sm" data-act="edit-paid" data-id="'+esc(g.id)+'">Edit amounts</button>' +
+      '<button class="btn primary sm" data-act="edit-game" data-id="'+esc(g.id)+'">Edit record</button>' +
       '<button class="btn ghost sm" data-act="copy-game" data-id="'+esc(g.id)+'">'+ICON.copy+'Copy summary</button>' +
       '<button class="btn ghost sm danger" data-act="del-game" data-id="'+esc(g.id)+'">'+(confirm?'Tap again to delete':'Delete')+'</button></div></div>';
   }
-  var paidN=(g.paidIds||[]).filter(function(id){return ids.indexOf(id)!==-1;}).length;
+  var paidN=ids.filter(function(id){ var a=gamePaidAmount(g,id); return a>0.001 && a>=(g.each||0)-0.001; }).length;
   return '<article class="g'+(open?' open':'')+'"><button class="g-h" data-act="open-game" data-id="'+esc(g.id)+'" aria-expanded="'+open+'">' +
     '<span class="g-l"><b>'+esc(fmtDate(g.date))+'</b><span>'+fmtHrs(g.hours)+' \u00B7 '+courtsLbl(g.courts)+' \u00B7 '+n+' player'+(n===1?'':'s')+'</span></span>' +
     '<span class="g-r"><b>'+peso(g.each||0)+'</b><span>each \u00B7 '+paidN+'/'+n+' paid</span></span>' +
@@ -649,11 +657,15 @@ function updateMemberList(){
   }
   el.innerHTML=html;
 }
+function balanceText(unpaid){
+  if(unpaid>0.001) return peso(unpaid)+' unpaid';
+  if(unpaid<-0.001) return peso(-unpaid)+' credit';
+  return 'All paid up';
+}
 function memberSub(id){
   var s=S.stats[id];
   if(!s||!s.count) return 'No games yet';
-  var bal = s.unpaid>0.001 ? peso(s.unpaid)+' unpaid' : 'All paid up';
-  return s.count+(s.count===1?' game':' games')+' \u00B7 '+bal+' \u00B7 last played '+fmtShort(s.last);
+  return s.count+(s.count===1?' game':' games')+' \u00B7 '+balanceText(s.unpaid)+' \u00B7 last played '+fmtShort(s.last);
 }
 function memberRow(m){
   var open=S.openMember===m.id;
@@ -725,8 +737,9 @@ async function saveGame(){
   S.busy=true;
   var c=curCalc();
   var ex=S.games.find(function(g){return g.id===S.date;});
-  var keptPaid=((ex&&ex.paidIds)||[]).filter(function(id){return ids.indexOf(id)!==-1;});
-  var g={id:S.date,date:S.date,hours:S.hours,courts:S.courts,playerIds:ids,paidIds:keptPaid,total:c.total,each:c.each,rate:S.settings.rate,minFee:S.settings.minFee,createdAt:(ex&&ex.createdAt)||Date.now(),updatedAt:Date.now()};
+  var keptPaid={};
+  if(ex){ ids.forEach(function(id){ var amt=gamePaidAmount(ex,id); if(amt>0.001) keptPaid[id]=amt; }); }
+  var g={id:S.date,date:S.date,hours:S.hours,courts:S.courts,playerIds:ids,paid:keptPaid,total:c.total,each:c.each,rate:S.settings.rate,minFee:S.settings.minFee,createdAt:(ex&&ex.createdAt)||Date.now(),updatedAt:Date.now()};
   try{
     await putGame(g);
     S.loadedDate=S.date; computeStats(); saveDraft();
@@ -738,11 +751,12 @@ async function saveGame(){
 function csvCell(v){ v=String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 async function exportCsv(){
   if(!S.downloads) return;
-  var rows=[['Date','Hours','Courts','Court fee total','Each pays','Players','Names','Paid','Unpaid']];
+  var rows=[['Date','Hours','Courts','Court fee total','Each pays','Players','Names','Fully paid','Not fully paid']];
   S.games.slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(g){
-    var ids=g.playerIds||[]; var paidSet=new Set(g.paidIds||[]);
-    var paidNames=ids.filter(function(id){return paidSet.has(id);}).map(nameOf).sort(cmpName);
-    var unpaidNames=ids.filter(function(id){return !paidSet.has(id);}).map(nameOf).sort(cmpName);
+    var ids=g.playerIds||[];
+    var isFull=function(id){ var a=gamePaidAmount(g,id); return a>0.001 && a>=(g.each||0)-0.001; };
+    var paidNames=ids.filter(isFull).map(nameOf).sort(cmpName);
+    var unpaidNames=ids.filter(function(id){return !isFull(id);}).map(nameOf).sort(cmpName);
     rows.push([g.date,g.hours,g.courts,g.total,g.each,ids.length,ids.map(nameOf).sort(cmpName).join('; '),paidNames.join('; '),unpaidNames.join('; ')]);
   });
   var csv='\uFEFF'+rows.map(function(r){return r.map(csvCell).join(',');}).join('\n');
@@ -756,6 +770,20 @@ function openSheet(inner){
   var f=$('#sheet input, #sheet textarea, #sheet button'); if(f) f.focus();
 }
 function closeSheet(){ $('#sheet').innerHTML=''; }
+function openPaidSheet(gameId){
+  var g=S.games.find(function(x){return x.id===gameId;});
+  if(!g) return;
+  var ids=(g.playerIds||[]).slice().sort(function(a,b){return cmpName(nameOf(a),nameOf(b));});
+  var rows=ids.map(function(id){
+    var amt=gamePaidAmount(g,id);
+    return '<div class="field"><label class="lbl" for="pay-'+esc(id)+'">'+esc(nameOf(id))+' <span style="font-weight:500">(owes '+peso(g.each||0)+')</span></label>' +
+      '<input id="pay-'+esc(id)+'" type="number" inputmode="decimal" min="0" step="any" value="'+amt+'" data-pid="'+esc(id)+'"></div>';
+  }).join('');
+  openSheet('<h2>Edit amounts paid</h2>' +
+    '<p class="hint">Enter what each player actually paid for this game. Overpaying carries over as credit toward their next balance.</p>' +
+    rows +
+    '<div class="row"><button class="btn ghost" data-act="close-sheet">Cancel</button><button class="btn primary" data-act="save-paid" data-id="'+esc(gameId)+'">Save</button></div>');
+}
 function openRules(){
   openSheet('<h2>Fee rules</h2>' +
     '<div class="field"><label class="lbl" for="ruleRate">Court fee per court, per hour (\u20B1)</label><input id="ruleRate" type="number" inputmode="decimal" min="1" step="any" value="'+S.settings.rate+'"></div>' +
@@ -793,10 +821,31 @@ document.addEventListener('click', async function(e){
       var gid=el.dataset.game;
       var gm=S.games.find(function(x){return x.id===gid;});
       if(!gm) break;
-      var paidSet=new Set(gm.paidIds||[]);
-      if(paidSet.has(id)) paidSet.delete(id); else paidSet.add(id);
-      var ng=Object.assign({}, gm, {paidIds:Array.from(paidSet)});
+      var curAmt=gamePaidAmount(gm,id);
+      var isFull=curAmt>0.001 && curAmt>=(gm.each||0)-0.001;
+      var paidObj=Object.assign({}, gm.paid||{});
+      paidObj[id]=isFull ? 0 : (gm.each||0);
+      var ng=Object.assign({}, gm, {paid:paidObj});
+      delete ng.paidIds;
       try{ await putGame(ng); computeStats(); render(); }
+      catch(err){ saveError(); }
+      break;
+    }
+    case 'edit-paid': openPaidSheet(id); break;
+    case 'save-paid': {
+      var sgid=id;
+      var sgm=S.games.find(function(x){return x.id===sgid;});
+      if(!sgm) break;
+      var inputs=$$('#sheet input[data-pid]');
+      var paidObj2=Object.assign({}, sgm.paid||{});
+      inputs.forEach(function(inp){
+        var pid=inp.dataset.pid, v=parseFloat(inp.value);
+        if(!(v>=0)) v=0;
+        paidObj2[pid]=Math.round(v*100)/100;
+      });
+      var ng2=Object.assign({}, sgm, {paid:paidObj2});
+      delete ng2.paidIds;
+      try{ await putGame(ng2); computeStats(); closeSheet(); render(); toast('Payments updated'); }
       catch(err){ saveError(); }
       break;
     }
