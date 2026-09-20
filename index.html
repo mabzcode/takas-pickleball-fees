@@ -320,6 +320,12 @@ async function removeGame(id){
   S.games = S.games.filter(function(g){return g.id!==id;});
   if(S.mode==='local') persistLocal();
 }
+async function deleteMember(id){
+  if(S.mode==='cloud') await S.db.doc('members/'+id).delete();
+  else if(S.mode==='firebase') await fbDelete('members/'+id);
+  S.members = S.members.filter(function(m){return m.id!==id;});
+  if(S.mode==='local') persistLocal();
+}
 async function putSettings(s){
   if(S.mode==='cloud') await S.db.doc('settings/main').set(s);
   else if(S.mode==='firebase') await fbPut('settings', Object.assign({}, DEFAULTS, s));
@@ -382,7 +388,14 @@ async function boot(){
   S.downloads = dl;
   if(db){ S.mode='cloud'; S.db=db; subscribe(); return; }
   var fbOk = await loadFirebase();
-  if(fbOk){ S.mode='firebase'; onData(true); startFirebasePolling(); return; }
+  if(fbOk){
+    S.mode='firebase';
+    try{
+      var n=await mergeDuplicateMembers();
+      if(n) toast(n+' duplicate player'+(n===1?'':'s')+' merged into one record.');
+    }catch(e){}
+    computeStats(); onData(true); startFirebasePolling(); return;
+  }
   S.mode='local'; loadLocal(); onData(true);
 }
 function subscribe(){
@@ -444,6 +457,55 @@ function computeStats(){
     st[id].unpaid = Math.round((st[id].owed - st[id].paid)*100)/100;
   });
   S.stats=st;
+}
+/* Find players who share the same name (case/spacing-insensitive) and merge
+   them into a single roster entry, folding their game history and payments
+   together so there is only ever one record per player. */
+async function mergeDuplicateMembers(){
+  var groups={};
+  S.members.forEach(function(m){
+    var key=m.name.trim().toLowerCase();
+    (groups[key]=groups[key]||[]).push(m);
+  });
+  var mergedCount=0;
+  for(var key in groups){
+    var arr=groups[key];
+    if(arr.length<2) continue;
+    arr.sort(function(a,b){
+      var aActive=a.active!==false, bActive=b.active!==false;
+      if(aActive!==bActive) return aActive?-1:1;
+      return (a.createdAt||0)-(b.createdAt||0);
+    });
+    var primary=arr[0], dups=arr.slice(1), dupIds=dups.map(function(d){return d.id;});
+    for(var gi=0; gi<S.games.length; gi++){
+      var g=S.games[gi], ids=g.playerIds||[];
+      if(!ids.some(function(id){return dupIds.indexOf(id)!==-1;})) continue;
+      var paid=Object.assign({}, g.paid||{});
+      var newIds=[], seenPrimary=ids.indexOf(primary.id)!==-1;
+      ids.forEach(function(pid){
+        if(dupIds.indexOf(pid)===-1){ newIds.push(pid); return; }
+        var amt=gamePaidAmount(g,pid);
+        delete paid[pid];
+        if(seenPrimary){
+          if(amt>0.001) paid[primary.id]=Math.round(((paid[primary.id]||0)+amt)*100)/100;
+        } else {
+          newIds.push(primary.id); seenPrimary=true;
+          if(amt>0.001) paid[primary.id]=amt;
+        }
+      });
+      var ng=Object.assign({}, g, {playerIds:newIds, paid:paid});
+      delete ng.paidIds;
+      try{ await putGame(ng); }catch(e){}
+    }
+    var anyActive=arr.some(function(a){return a.active!==false;});
+    if(primary.active===false && anyActive){
+      try{ await putMember(Object.assign({}, primary, {active:true})); }catch(e){}
+    }
+    for(var di=0; di<dups.length; di++){
+      try{ await deleteMember(dups[di].id); mergedCount++; }catch(e){}
+    }
+  }
+  return mergedCount;
 }
 
 /* ---------- rendering ---------- */
@@ -707,6 +769,11 @@ function summary(date, hours, courts, ids, each, total, rate){
 async function addMember(raw){
   var name=String(raw||'').replace(/\s+/g,' ').trim();
   if(!name) return null;
+  if(S.mode==='firebase'){
+    /* refresh from the shared database right before checking, so two people
+       adding the same name at nearly the same time still land on one record */
+    try{ await loadFirebase(); computeStats(); }catch(e){}
+  }
   var ex=S.members.find(function(m){return m.name.toLowerCase()===name.toLowerCase();});
   if(ex){
     if(ex.active===false) await putMember(Object.assign({},ex,{active:true}));
