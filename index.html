@@ -164,6 +164,9 @@ input::placeholder{color:var(--muted);font-weight:500}
 .chip svg{flex:none}
 .paid-hint{font-size:11px;font-weight:600;color:var(--muted);margin-top:8px}
 .fund-note{font-size:12px;font-weight:700;color:var(--sel-line);margin-top:4px}
+.cf-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:800;color:var(--sel-line);vertical-align:middle;margin-left:6px}
+.cf-badge svg{flex:none;width:12px;height:12px}
+.g-b .bal-row{margin-top:10px;padding:10px;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
 .pay-edit-row{margin-top:10px;padding:10px;border-radius:12px;border:1.5px solid var(--line-strong);background:var(--bg)}
 .pay-edit-name{font-size:12px;font-weight:700;margin-bottom:8px}
 .pay-edit-row .row{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
@@ -215,6 +218,7 @@ input::placeholder{color:var(--muted);font-weight:500}
 .month-row-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
 .month-row-h span{font-size:12px;font-weight:600;color:var(--muted)}
 .month-row-g{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.month-row-g.cols-2{grid-template-columns:repeat(2,1fr)}
 .month-row-g div{text-align:center;background:var(--bg);border-radius:10px;padding:8px 4px}
 .month-row-g .mrl{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:2px}
 .month-row-g b{font-size:14px}
@@ -314,7 +318,7 @@ var S = {
   tab:'home', mode:'loading', ready:false, inited:false, db:null, downloads:null,
   members:[], games:[], settings:{rate:50,minFee:25,pin:''}, stats:{}, pendingAdminCb:null,
   date:todayStr(), courts:[1], ids:new Set(), loadedDate:null,
-  q:'', openGame:null, confirmDel:null, payEdit:null, openMember:null, playerDetailId:null, showHidden:false, sortBy:'az', dirty:false
+  q:'', openGame:null, confirmDel:null, payEdit:null, courtFeeEdit:null, openMember:null, playerDetailId:null, showHidden:false, sortBy:'az', dirty:false
 };
 
 /* ---------- fee math ---------- */
@@ -344,6 +348,12 @@ function gamePaidInfo(g, id){
 }
 function gamePaidAmount(g, id){ return gamePaidInfo(g, id).amount; }
 function gamePaidMethod(g, id){ return gamePaidInfo(g, id).method; }
+/* Whether the day's TOTAL court fee has actually been forwarded to the venue,
+   and when — separate from whether individual players have paid their share. */
+function gameCourtFeeInfo(g){
+  var cf = g.courtFee || {};
+  return { paid: !!cf.paid, date: cf.date || '' };
+}
 /* When each player's share is rounded up or bumped to the minimum fee, the
    amount actually collected can exceed the true court fee (rate x hours).
    That extra is kept aside for court/game expenses (balls, etc). */
@@ -506,7 +516,7 @@ function onData(ready){
 }
 function isTyping(){
   var a=document.activeElement;
-  return !!(a && (a.id==='renameIn' || a.id==='newName' || a.id==='payAmt'));
+  return !!(a && (a.id==='renameIn' || a.id==='newName' || a.id==='payAmt' || a.id==='courtFeeDate'));
 }
 function initForm(){
   var draft = readDraft();
@@ -603,7 +613,7 @@ function updateHeader(){
   if(al) al.innerHTML = isUnlocked() ? ('Unlocked for payments on this device \u00B7 <button type="button" data-act="lock-admin">Lock</button>') : '';
 }
 function setTab(t){
-  S.tab=t; S.confirmDel=null; S.payEdit=null;
+  S.tab=t; S.confirmDel=null; S.payEdit=null; S.courtFeeEdit=null;
   $$('.tabs button').forEach(function(b){ if(b.dataset.tab===t) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
   render();
   window.scrollTo(0,0);
@@ -636,8 +646,9 @@ function computeMonthly(){
   var byMonth={};
   S.games.forEach(function(g){
     var k=g.date.slice(0,7);
-    var mo = byMonth[k] || (byMonth[k]={key:k,total:0,paid:0,unpaid:0,fund:0,days:0});
+    var mo = byMonth[k] || (byMonth[k]={key:k,total:0,paid:0,unpaid:0,fund:0,days:0,venuePaid:0});
     mo.total += g.total||0; mo.fund += gameExcess(g); mo.days += 1;
+    if(gameCourtFeeInfo(g).paid) mo.venuePaid += g.total||0;
     (g.playerIds||[]).forEach(function(id){
       var amt=gamePaidAmount(g,id);
       mo.paid += amt;
@@ -651,6 +662,8 @@ function computeMonthly(){
     mo.unpaid=Math.round(mo.unpaid*100)/100;
     mo.total=Math.round(mo.total*100)/100;
     mo.fund=Math.round(mo.fund*100)/100;
+    mo.venuePaid=Math.round(mo.venuePaid*100)/100;
+    mo.venuePayable=Math.max(0, Math.round((mo.total-mo.venuePaid)*100)/100);
     mo.label=dfMonth.format(parseDate(k+'-01'));
     return mo;
   });
@@ -661,6 +674,10 @@ function monthRow(m){
       '<div><span class="mrl">Court fees</span><b>'+peso(m.total)+'</b></div>' +
       '<div><span class="mrl">Paid</span><b>'+peso(m.paid)+'</b></div>' +
       '<div><span class="mrl">Unpaid</span><b'+(m.unpaid>0.001?' class="danger"':'')+'>'+peso(m.unpaid)+'</b></div>' +
+    '</div>' +
+    '<div class="month-row-g cols-2" style="margin-top:8px">' +
+      '<div><span class="mrl">Paid to venue</span><b>'+peso(m.venuePaid)+'</b></div>' +
+      '<div><span class="mrl">Payable to venue</span><b'+(m.venuePayable>0.001?' class="danger"':'')+'>'+peso(m.venuePayable)+'</b></div>' +
     '</div>' +
     (m.fund>0.001 ? '<div class="month-row-fund"><span class="mrl">Court fund (rounding excess)</span><b>+'+peso(m.fund)+'</b></div>' : '') +
     '</div>';
@@ -874,6 +891,30 @@ function payEditRow(g, id){
     '</div>' +
   '</div>';
 }
+function courtFeeEditRow(g){
+  var info = gameCourtFeeInfo(g);
+  var d = (S.courtFeeEdit && S.courtFeeEdit.game===g.id) ? S.courtFeeEdit.date : (info.date || todayStr());
+  return '<div class="pay-edit-row">' +
+    '<div class="pay-edit-name">Court fee to venue · '+peso(g.total||0)+'</div>' +
+    '<div class="pay-row-in"><input id="courtFeeDate" type="date" lang="en-US" value="'+esc(d)+'" aria-label="Date paid to venue"></div>' +
+    '<div class="row">' +
+      '<button class="btn ghost sm" type="button" data-act="cancel-court-fee-inline">Cancel</button>' +
+      (info.paid ? '<button class="btn ghost sm danger" type="button" data-act="mark-court-fee-unpaid" data-id="'+esc(g.id)+'">Mark unpaid</button>' : '') +
+      '<button class="btn primary sm" type="button" data-act="save-court-fee-inline" data-id="'+esc(g.id)+'">Save</button>' +
+    '</div>' +
+  '</div>';
+}
+/* Row showing whether the day's court fee has been forwarded to the venue
+   (separate from whether players have paid their own shares), tap to tag it. */
+function courtFeeRow(g){
+  var info = gameCourtFeeInfo(g);
+  var editing = S.courtFeeEdit && S.courtFeeEdit.game===g.id;
+  var statusLbl = info.paid ? ('Paid to venue · '+fmtDate(info.date)) : 'Not yet paid to venue';
+  return '<button type="button" class="bal-row bal-row-btn" data-act="toggle-court-fee" data-id="'+esc(g.id)+'" aria-pressed="'+info.paid+'" aria-expanded="'+editing+'">' +
+    '<span class="nm">Court fee to venue<small>'+peso(g.total||0)+'</small></span>' +
+    '<span class="bal-amt'+(info.paid?'':' danger')+'">'+statusLbl+'</span></button>' +
+    (editing ? courtFeeEditRow(g) : '');
+}
 function gameCard(g){
   var ids=g.playerIds||[], n=ids.length, open=S.openGame===g.id;
   var body='';
@@ -885,6 +926,7 @@ function gameCard(g){
     var excess = gameExcess(g);
     body = '<div class="g-b"><p class="sum">'+peso(g.total)+' court fee \u00F7 '+n+' player'+(n===1?'':'s')+' \u00B7 '+peso(g.each||0)+' each \u00B7 '+paidCount+' of '+n+' fully paid</p>' +
       (excess>0.001 ? '<p class="fund-note">+'+peso(excess)+' collected above the court fee \u2014 kept for court fund (balls, etc.)</p>' : '') +
+      courtFeeRow(g) +
       '<div class="chips">'+sorted.map(function(id){
         var amt=gamePaidAmount(g,id);
         var full = amt>0.001 && amt>=(g.each||0)-0.001;
@@ -899,8 +941,9 @@ function gameCard(g){
       '<button class="btn ghost sm danger" data-act="del-game" data-id="'+esc(g.id)+'">'+(confirm?'Tap again to delete':'Delete')+'</button></div></div>';
   }
   var paidN=ids.filter(function(id){ var a=gamePaidAmount(g,id); return a>0.001 && a>=(g.each||0)-0.001; }).length;
+  var cfInfo = gameCourtFeeInfo(g);
   return '<article class="g'+(open?' open':'')+'"><button class="g-h" data-act="open-game" data-id="'+esc(g.id)+'" aria-expanded="'+open+'">' +
-    '<span class="g-l"><b>'+esc(fmtDate(g.date))+'</b><span>'+courtsSummary(gameCourtHours(g))+' \u00B7 '+n+' player'+(n===1?'':'s')+'</span></span>' +
+    '<span class="g-l"><b>'+esc(fmtDate(g.date))+(cfInfo.paid?' <span class="cf-badge">'+ICON.check+'Venue paid</span>':'')+'</b><span>'+courtsSummary(gameCourtHours(g))+' \u00B7 '+n+' player'+(n===1?'':'s')+'</span></span>' +
     '<span class="g-r"><b>'+peso(g.total||0)+'</b><span>'+peso(g.each||0)+' each \u00B7 '+paidN+'/'+n+' paid</span></span>' +
     '<span class="chev">'+ICON.chev+'</span></button>'+body+'</article>';
 }
@@ -1033,7 +1076,7 @@ async function saveGame(){
 function csvCell(v){ v=String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 async function exportCsv(){
   if(!S.downloads) return;
-  var rows=[['Date','Courts (hrs each)','Total hours','Court fee total','Each pays','Fund excess','Players','Names','Fully paid','Not fully paid','Cash payers','GCash payers']];
+  var rows=[['Date','Courts (hrs each)','Total hours','Court fee total','Each pays','Fund excess','Court fee paid to venue','Date paid to venue','Players','Names','Fully paid','Not fully paid','Cash payers','GCash payers']];
   S.games.slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(g){
     var ids=g.playerIds||[];
     var ch=gameCourtHours(g);
@@ -1043,7 +1086,8 @@ async function exportCsv(){
     var unpaidNames=ids.filter(function(id){return !isFull(id);}).map(nameOf).sort(cmpName);
     var cashNames=ids.filter(function(id){ return gamePaidAmount(g,id)>0.001 && gamePaidMethod(g,id)==='cash'; }).map(nameOf).sort(cmpName);
     var gcashNames=ids.filter(function(id){ return gamePaidAmount(g,id)>0.001 && gamePaidMethod(g,id)==='gcash'; }).map(nameOf).sort(cmpName);
-    rows.push([g.date,courtsSummary(ch),totalHours,g.total,g.each,gameExcess(g),ids.length,ids.map(nameOf).sort(cmpName).join('; '),paidNames.join('; '),unpaidNames.join('; '),cashNames.join('; '),gcashNames.join('; ')]);
+    var cf=gameCourtFeeInfo(g);
+    rows.push([g.date,courtsSummary(ch),totalHours,g.total,g.each,gameExcess(g),cf.paid?'Yes':'No',cf.date||'',ids.length,ids.map(nameOf).sort(cmpName).join('; '),paidNames.join('; '),unpaidNames.join('; '),cashNames.join('; '),gcashNames.join('; ')]);
   });
   var csv='\uFEFF'+rows.map(function(r){return r.map(csvCell).join(',');}).join('\n');
   try{ await S.downloads.save({filename:'takas-pickleball-records.csv', data:csv}); }
@@ -1182,6 +1226,46 @@ document.addEventListener('click', async function(e){
       break;
     }
     case 'edit-paid': { var epid=id; promptAdmin(function(){ openPaidSheet(epid); }); break; }
+    case 'toggle-court-fee': {
+      var cfgid=id;
+      promptAdmin(function(){
+        if(S.courtFeeEdit && S.courtFeeEdit.game===cfgid){
+          S.courtFeeEdit=null;
+        } else {
+          var gmCf=S.games.find(function(x){return x.id===cfgid;});
+          var infoCf=gmCf?gameCourtFeeInfo(gmCf):{paid:false,date:''};
+          S.courtFeeEdit={game:cfgid, date: infoCf.date || todayStr()};
+        }
+        render();
+      });
+      break;
+    }
+    case 'cancel-court-fee-inline': S.courtFeeEdit=null; render(); break;
+    case 'mark-court-fee-unpaid': {
+      var mcfgid=id;
+      promptAdmin(async function(){
+        var gmM=S.games.find(function(x){return x.id===mcfgid;});
+        if(!gmM) return;
+        var ngM=Object.assign({}, gmM, {courtFee:{paid:false, date:''}});
+        try{ await putGame(ngM); computeStats(); S.courtFeeEdit=null; render(); toast('Court fee marked unpaid'); }
+        catch(err){ saveError(); }
+      });
+      break;
+    }
+    case 'save-court-fee-inline': {
+      var scfgid=id;
+      promptAdmin(async function(){
+        var gmS=S.games.find(function(x){return x.id===scfgid;});
+        if(!gmS) return;
+        var dIn=$('#courtFeeDate');
+        var dv=dIn?dIn.value:(S.courtFeeEdit?S.courtFeeEdit.date:'');
+        if(!dv) dv=todayStr();
+        var ngS=Object.assign({}, gmS, {courtFee:{paid:true, date:dv}});
+        try{ await putGame(ngS); computeStats(); S.courtFeeEdit=null; render(); toast('Court fee marked paid'); }
+        catch(err){ saveError(); }
+      });
+      break;
+    }
     case 'remove-from-game': {
       var rgid=el.dataset.game, rpid=id;
       promptAdmin(async function(){
@@ -1314,9 +1398,11 @@ async function doRename(id){
 document.addEventListener('input', function(e){
   if(e.target.id==='q'){ S.q=e.target.value; updateRoster(); }
   if(e.target.id==='payAmt' && S.payEdit){ S.payEdit.amount=e.target.value; }
+  if(e.target.id==='courtFeeDate' && S.courtFeeEdit){ S.courtFeeEdit.date=e.target.value; }
 });
 document.addEventListener('change', function(e){
   if(e.target.id==='date') setDate(e.target.value);
+  if(e.target.id==='courtFeeDate' && S.courtFeeEdit){ S.courtFeeEdit.date=e.target.value; }
 });
 document.addEventListener('keydown', function(e){
   if(e.key==='Escape' && $('#sheet').firstChild){ closeSheet(); return; }
