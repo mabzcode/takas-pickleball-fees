@@ -791,7 +791,13 @@ function allTimeCard(monthly){
   var ob = openingBalance();
   if(!ob) return '';
   var at = allTimeTotals(monthly);
-  var asOfLbl = ob.asOf ? fmtDate(ob.asOf) : 'the beginning balance';
+  /* ob now (since games were imported from real per-game records covering
+     every month) only carries fund-level adjustments that sit outside any
+     single game — a starting fund and/or a one-off expense — not a lump
+     opening balance, so the note only mentions whichever of those exist. */
+  var parts=[];
+  if(ob.initialFund>0.001) parts.push(peso(ob.initialFund)+' starting fund');
+  if(ob.expenses>0.001) parts.push(peso(ob.expenses)+' '+esc(ob.expenseLabel||'expense')+' expense');
   return '<section class="card" style="margin-top:0"><div class="sec-h"><h2>All-time summary</h2></div>' +
     '<div class="month-sec-h">Collections</div>' +
     '<div class="month-row-g">' +
@@ -804,7 +810,7 @@ function allTimeCard(monthly){
     '<div class="month-row-g">' +
       '<div><span class="mrl">Court fee paid</span><b>'+peso(at.courtFeePaid)+'</b></div>' +
     '</div>' +
-    '<p class="hint" style="margin-top:10px">Includes a beginning balance as of '+esc(asOfLbl)+': '+(ob.initialFund>0.001?peso(ob.initialFund)+' initial fund, ':'')+peso(ob.dues||0)+' dues, '+peso(ob.paid||0)+' paid, '+peso(ob.courtFeePaid||0)+' court fee paid'+(ob.expenses>0.001?', '+peso(ob.expenses)+' expense ('+esc(ob.expenseLabel||'expense')+')':'')+', '+peso(ob.cashOnHand||0)+' cash on hand.</p>' +
+    (parts.length ? '<p class="hint" style="margin-top:10px">Includes '+parts.join(' and ')+', outside of game records.</p>' : '') +
     '</section>';
 }
 function homeShell(){
