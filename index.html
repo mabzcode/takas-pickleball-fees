@@ -758,6 +758,7 @@ function openPlayerDetail(id){
   var bulkMethod = S.playerBulkMethod==='gcash' ? 'gcash' : 'cash';
   var selGames = games.filter(function(g){ return S.selectedPlayerGames && S.selectedPlayerGames.has(g.id); });
   var selTotal = Math.round(selGames.reduce(function(a,g){ return a+(g.each||0); },0)*100)/100;
+  var allUnpaidSelected = unpaidIds.length && unpaidIds.every(function(gid){ return S.selectedPlayerGames.has(gid); });
   var selectBar = selGames.length ? (
     '<div class="pay-edit-row">' +
       '<div class="pay-edit-name">'+selGames.length+' game'+(selGames.length===1?'':'s')+' selected · '+peso(selTotal)+' total owed</div>' +
@@ -766,6 +767,7 @@ function openPlayerDetail(id){
           '<button type="button" data-act="bulk-pay-method" data-v="cash" aria-pressed="'+(bulkMethod==='cash')+'">Cash</button>' +
           '<button type="button" data-act="bulk-pay-method" data-v="gcash" aria-pressed="'+(bulkMethod==='gcash')+'">GCash</button>' +
         '</div>' +
+        (unpaidIds.length && !allUnpaidSelected ? '<button class="link" type="button" data-act="select-all-unpaid" data-id="'+esc(id)+'">Select all</button>' : '') +
       '</div>' +
       '<div class="row">' +
         '<button class="btn ghost sm" type="button" data-act="clear-player-game-selection">Clear</button>' +
