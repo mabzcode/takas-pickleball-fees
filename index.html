@@ -82,6 +82,7 @@ h1,h2{line-height:1.2}
 
 /* cards and fields */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;margin-top:14px}
+.card-hero{background:var(--navy);border-color:var(--sel-line)}
 .sec-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
 .sec-h h2{font-size:15px;font-weight:800}
 .count{background:var(--pick-bg);color:var(--pick-ink);border-radius:999px;padding:4px 11px;font-weight:800;font-size:12px}
@@ -201,9 +202,9 @@ input::placeholder{color:var(--muted);font-weight:500}
 .savebar-in{max-width:560px;margin:0 auto;display:flex;gap:10px}
 .savebar .btn.primary{flex:1}
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
-.tabs-in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr)}
-.tabs button{height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:none;border:0;font-size:11px;font-weight:700;color:var(--muted)}
-.tabs .ico{display:grid;place-items:center;padding:3px 18px;border-radius:999px}
+.tabs-in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
+.tabs button{height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:none;border:0;font-size:10.5px;font-weight:700;color:var(--muted)}
+.tabs .ico{display:grid;place-items:center;padding:3px 12px;border-radius:999px}
 .tabs button[aria-current=page]{color:var(--ink)}
 .tabs button[aria-current=page] .ico{background:var(--lime);color:var(--navy)}
 .toast{position:fixed;left:50%;bottom:calc(150px + env(safe-area-inset-bottom));transform:translate(-50%,10px);background:var(--navy);color:#fff;border:1px solid #1E3E66;padding:11px 16px;border-radius:14px;font-weight:700;font-size:13px;max-width:min(92vw,420px);text-align:center;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:50}
@@ -266,6 +267,7 @@ textarea.copybox{width:100%;min-height:180px;border-radius:12px;border:1.5px sol
     <button data-tab="home" aria-current="page"><span class="ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9.5h12V10"/><path d="M10 19.5v-6h4v6"/></svg></span>Home</button>
     <button data-tab="game"><span class="ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="2.5" width="11" height="13.5" rx="5.2"/><path d="M9 16V21.5"/><circle cx="18.5" cy="17.5" r="2.3"/></svg></span>Game</button>
     <button data-tab="records"><span class="ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9z"/><path d="M9 11h6M9 15h6"/></svg></span>Records</button>
+    <button data-tab="balances"><span class="ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/><circle cx="16.5" cy="14.5" r="1.3" fill="currentColor" stroke="none"/></svg></span>Balances</button>
     <button data-tab="players"><span class="ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.2c2.4.1 4 1.6 4.5 4.3"/></svg></span>Players</button>
   </div>
 </nav>
@@ -706,6 +708,7 @@ function render(){
   if(S.tab==='home'){ app.innerHTML = banner + homeShell(); }
   else if(S.tab==='game'){ app.innerHTML = banner + gameShell(); refreshGame(); }
   else if(S.tab==='records'){ app.innerHTML = banner + recordsHTML(); }
+  else if(S.tab==='balances'){ app.innerHTML = banner + balancesShell(); }
   else { app.innerHTML = banner + playersShell(); updateMemberList(); }
   var showSave = S.tab==='game';
   sb.hidden=!showSave; document.body.classList.toggle('has-save', showSave);
@@ -798,7 +801,7 @@ function allTimeCard(monthly){
   var parts=[];
   if(ob.initialFund>0.001) parts.push(peso(ob.initialFund)+' starting fund');
   if(ob.expenses>0.001) parts.push(peso(ob.expenses)+' '+esc(ob.expenseLabel||'expense')+' expense');
-  return '<section class="card" style="margin-top:0"><div class="sec-h"><h2>All-time summary</h2></div>' +
+  return '<section class="card card-hero" style="margin-top:0"><div class="sec-h"><h2>All-time summary</h2></div>' +
     '<div class="month-sec-h">Collections</div>' +
     '<div class="month-row-g">' +
       '<div><span class="mrl">Total dues</span><b>'+peso(at.dues)+'</b></div>' +
@@ -815,6 +818,13 @@ function allTimeCard(monthly){
 }
 function homeShell(){
   var monthly = computeMonthly();
+  var html = allTimeCard(monthly);
+  html += '<section class="card"'+(html?'':' style="margin-top:0"')+'><div class="sec-h"><h2>Monthly summary</h2></div>' +
+    (monthly.length ? monthly.map(monthRow).join('') : '<p class="hint">No games recorded yet.</p>') +
+    '</section>';
+  return html;
+}
+function balancesShell(){
   var active = S.members.filter(function(m){ return m.active!==false; });
   var rows = active.map(function(m){
     var s = S.stats[m.id] || {count:0, owed:0, paid:0, unpaid:0};
@@ -825,15 +835,10 @@ function homeShell(){
     return cmpName(a.name,b.name);
   });
   var totalUnpaid = Math.round(rows.reduce(function(a,r){ return a + Math.max(0,r.unpaid); }, 0)*100)/100;
-  var html = allTimeCard(monthly);
-  html += '<section class="card"'+(html?'':' style="margin-top:0"')+'><div class="sec-h"><h2>Monthly summary</h2></div>' +
-    (monthly.length ? monthly.map(monthRow).join('') : '<p class="hint">No games recorded yet.</p>') +
-    '</section>';
-  html += '<section class="card"><div class="sec-h"><h2>Player balances</h2><span class="count">'+peso(totalUnpaid)+' owed</span></div>' +
+  return '<section class="card" style="margin-top:0"><div class="sec-h"><h2>Player balances</h2><span class="count">'+peso(totalUnpaid)+' owed</span></div>' +
     (rows.length ? rows.map(playerBalanceRow).join('') : '<p class="hint">No players yet.</p>') +
     (rows.length ? '<p class="hint" style="margin-top:10px">Tap a player to see their day-by-day payment history.</p>' : '') +
     '</section>';
-  return html;
 }
 function openPlayerDetail(id){
   if(S.playerDetailId!==id){ S.playerBulkMethod='cash'; S.confirmBulkPay=null; S.selectedPlayerGames=new Set(); }
