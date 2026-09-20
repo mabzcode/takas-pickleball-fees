@@ -588,14 +588,29 @@ function computeStats(){
   Object.keys(st).forEach(function(id){
     st[id].unpaid = Math.round((st[id].owed - st[id].paid)*100)/100;
   });
+  /* Fold the Aug-2026 opening balance into lifetime owed/paid/unpaid, so
+     "total paid" anywhere in the app (Home's player list, etc.) is the true
+     running total — not just what's been recorded in-app since Sept. Prefer
+     the full dues+paid breakdown when we have it; fall back to just the
+     outstanding balance for any older entry that only has that. */
   var ob = openingBalance();
-  if(ob && ob.playerUnpaid){
-    Object.keys(ob.playerUnpaid).forEach(function(id){
-      var amt = +ob.playerUnpaid[id]||0;
-      if(amt<=0.001) return;
+  if(ob){
+    var ids = {};
+    if(ob.playerDues) Object.keys(ob.playerDues).forEach(function(id){ ids[id]=1; });
+    if(ob.playerPaid) Object.keys(ob.playerPaid).forEach(function(id){ ids[id]=1; });
+    if(ob.playerUnpaid) Object.keys(ob.playerUnpaid).forEach(function(id){ ids[id]=1; });
+    Object.keys(ids).forEach(function(id){
       var s = st[id] || (st[id]={count:0,owed:0,paid:0,unpaid:0,last:''});
-      s.owed = Math.round((s.owed+amt)*100)/100;
-      s.unpaid = Math.round((s.unpaid+amt)*100)/100;
+      var hasFull = ob.playerDues && ob.playerDues[id]!=null;
+      if(hasFull){
+        var dues = +ob.playerDues[id]||0, paid = +(ob.playerPaid&&ob.playerPaid[id])||0;
+        s.owed = Math.round((s.owed+dues)*100)/100;
+        s.paid = Math.round((s.paid+paid)*100)/100;
+      } else {
+        var amt = +(ob.playerUnpaid&&ob.playerUnpaid[id])||0;
+        if(amt>0.001) s.owed = Math.round((s.owed+amt)*100)/100;
+      }
+      s.unpaid = Math.round((s.owed-s.paid)*100)/100;
     });
   }
   S.stats=st;
@@ -882,6 +897,7 @@ function openPlayerDetail(id){
   var inAppPaid = Math.round(games.reduce(function(a,g){ return a+gamePaidAmount(g,id); },0)*100)/100;
   var inAppUnpaid = Math.round((inAppOwed-inAppPaid)*100)/100;
   openSheet('<h2>'+esc(name)+'</h2>' +
+    '<p class="hint"><b>Total: '+peso(s.owed||0)+' owed · '+peso(s.paid||0)+' paid · '+balanceText(s.unpaid||0)+'</b> (includes Aug 2026 balance)</p>' +
     obSummary +
     '<p class="hint">Since Sept 2026: '+s.count+' game'+(s.count===1?'':'s')+' · '+peso(inAppOwed)+' owed · '+peso(inAppPaid)+' paid · '+balanceText(inAppUnpaid)+'</p>' +
     selectBar +
