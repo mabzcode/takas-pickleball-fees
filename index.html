@@ -905,7 +905,7 @@ function openPlayerDetail(id){
   openSheet('<h2>'+esc(name)+'</h2>' +
     '<p class="hint"><b>Total: '+(s.count||0)+' game'+(s.count===1?'':'s')+' · '+peso(s.owed||0)+' owed · '+peso(s.paid||0)+' paid · '+balanceText(s.unpaid||0)+'</b> (includes Aug 2026 balance)</p>' +
     obSummary +
-    '<p class="hint">Since Sept 2026: '+s.count+' game'+(s.count===1?'':'s')+' · '+peso(inAppOwed)+' owed · '+peso(inAppPaid)+' paid · '+balanceText(inAppUnpaid)+'</p>' +
+    '<p class="hint">Since Sept 2026: '+games.length+' game'+(games.length===1?'':'s')+' · '+peso(inAppOwed)+' owed · '+peso(inAppPaid)+' paid · '+balanceText(inAppUnpaid)+'</p>' +
     selectBar +
     obRow +
     (rows || '<p class="hint">No games recorded yet.</p>') +
