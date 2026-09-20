@@ -94,8 +94,9 @@ input[type=text],input[type=search],input[type=number],input[type=date]{
   padding:0 14px;font-weight:600;font-size:15px;color:var(--ink);
 }
 input::placeholder{color:var(--muted);font-weight:500}
-.date-row{display:flex;gap:8px}
+.date-row{display:flex;gap:8px;align-items:center}
 .date-row input{flex:1;min-width:0}
+.day-badge{flex:none;height:48px;padding:0 12px;border-radius:12px;background:var(--pick-bg);color:var(--pick-ink);font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center}
 .hint{font-size:12px;font-weight:600;color:var(--muted);margin-top:8px}
 .stepper{display:flex;align-items:center;justify-content:space-between;height:52px;border:1.5px solid var(--line-strong);border-radius:14px;background:var(--bg)}
 .stepper button{width:56px;height:100%;background:none;border:0;font-size:22px;font-weight:800;border-radius:12px}
@@ -235,6 +236,8 @@ function parseDate(s){ var p=s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]
 var dfLong = new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
 var dfMonth = new Intl.DateTimeFormat('en-GB',{month:'long',year:'numeric'});
 var dfShort = new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short'});
+var dfDay = new Intl.DateTimeFormat('en-US',{weekday:'short'});
+function fmtDay(s){ return dfDay.format(parseDate(s)); }
 function fmtDate(s){ return dfLong.format(parseDate(s)); }
 function fmtShort(s){ return dfShort.format(parseDate(s)); }
 function peso(n){
@@ -482,7 +485,7 @@ function gameShell(){
   '<section class="fee" id="fee" aria-live="polite"></section>' +
   '<section class="card" aria-label="Game details">' +
     '<div class="field"><label class="lbl" for="date">Date</label>' +
-      '<div class="date-row"><input type="date" id="date" lang="en-US"><button class="chip-btn" id="todayBtn" data-act="today" hidden>Today</button></div>' +
+      '<div class="date-row"><input type="date" id="date" lang="en-US"><span class="day-badge" id="dayBadge" aria-hidden="true"></span><button class="chip-btn" id="todayBtn" data-act="today" hidden>Today</button></div>' +
       '<p class="hint" id="dateHint" hidden></p></div>' +
     '<div class="grid2">' +
       '<div class="field"><span class="lbl" id="hrsLbl">Hours played</span>' +
@@ -529,6 +532,7 @@ function updateBalances(){
 function updateWhen(){
   var d=$('#date'); if(!d) return;
   if(d.value!==S.date) d.value=S.date;
+  var db=$('#dayBadge'); if(db) db.textContent=fmtDay(S.date);
   $('#hrsOut').textContent=fmtHrs(S.hours);
   $('#hrsMinus').disabled = S.hours<=0.5;
   $('#hrsPlus').disabled = S.hours>=12;
