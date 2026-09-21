@@ -150,6 +150,9 @@ input::placeholder{color:var(--muted);font-weight:500}
 .mh p{font-size:12px;font-weight:600;color:var(--muted)}
 .mh-sel{display:flex;gap:4px;margin-top:-2px}
 .mh-sel .link{padding:4px 4px 4px 0;font-size:12px}
+.mh-btn{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:0;text-align:left;padding:0;cursor:pointer}
+.mh-btn>span:first-child{display:flex;flex-direction:column;min-width:0}
+.mh-btn .chev{flex:none;margin-left:8px}
 .g{background:var(--surface);border:1px solid var(--line);border-radius:16px;margin-top:10px;overflow:hidden}
 .g.selected{border-color:var(--lime)}
 .g-h{display:flex;align-items:stretch}
@@ -340,7 +343,7 @@ var S = {
   tab:'home', mode:'loading', ready:false, inited:false, db:null, downloads:null,
   members:[], games:[], expenses:[], settings:{rate:50,minFee:25,pin:''}, stats:{}, pendingAdminCb:null,
   date:todayStr(), courts:[1], ids:new Set(), loadedDate:null,
-  q:'', openGame:null, confirmDel:null, payEdit:null, courtFeeEdit:null, openMember:null, playerDetailId:null, playerBulkMethod:'cash', confirmBulkPay:null, selectedPlayerGames:new Set(), selectedGames:new Set(), bulkCourtFeeDate:null, confirmBulkCourtFee:false, showHidden:false, sortBy:'az', dirty:false, confirmOpeningPaid:null, confirmExpenseDel:null
+  q:'', openGame:null, confirmDel:null, payEdit:null, courtFeeEdit:null, openMember:null, playerDetailId:null, playerBulkMethod:'cash', confirmBulkPay:null, selectedPlayerGames:new Set(), selectedGames:new Set(), bulkCourtFeeDate:null, confirmBulkCourtFee:false, showHidden:false, sortBy:'az', dirty:false, confirmOpeningPaid:null, confirmExpenseDel:null, expandedMonths:null
 };
 
 /* ---------- fee math ---------- */
@@ -1158,14 +1161,25 @@ function recordsHTML(){
   }
   var groups={}, order=[];
   games.forEach(function(g){ var k=g.date.slice(0,7); if(!groups[k]){groups[k]=[];order.push(k);} groups[k].push(g); });
+  /* Months collapse so the list stays short as the season goes on. First
+     time the tab is opened, only the most recent month (normally the
+     current one) starts expanded; every other month is collapsed until
+     tapped. After that, whatever the user opened/closed stays put. */
+  if(!S.expandedMonths){ S.expandedMonths = new Set([order[0]]); }
   var html = S.downloads ? '<div class="tools"><button class="btn ghost sm" data-act="csv">Download CSV</button></div>' : '';
   html += selectionBar();
   order.forEach(function(k){
     var gs=groups[k], sum=gs.reduce(function(a,g){return a+(g.total||0);},0);
     var paidSum=gs.reduce(function(a,g){ return a+(g.playerIds||[]).reduce(function(b,pid){ return b+gamePaidAmount(g,pid); },0); },0);
     var fundSum=Math.max(0, paidSum-sum);
-    html += '<div class="mh"><h2>'+esc(dfMonth.format(parseDate(k+'-01')))+'</h2><p>'+gs.length+' game'+(gs.length===1?'':'s')+' \u00B7 '+peso(sum)+' in court fees'+(fundSum>0.001?' \u00B7 +'+peso(Math.round(fundSum*100)/100)+' to fund':'')+'</p>'+monthSelectControls(gs)+'</div>';
-    html += gs.map(gameCard).join('');
+    var open = S.expandedMonths.has(k);
+    html += '<button type="button" class="mh mh-btn" data-act="toggle-month" data-id="'+esc(k)+'" aria-expanded="'+open+'">' +
+      '<span><h2>'+esc(dfMonth.format(parseDate(k+'-01')))+'</h2><p>'+gs.length+' game'+(gs.length===1?'':'s')+' \u00B7 '+peso(sum)+' in court fees'+(fundSum>0.001?' \u00B7 +'+peso(Math.round(fundSum*100)/100)+' to fund':'')+'</p></span>' +
+      '<span class="chev'+(open?' open':'')+'" style="transform:rotate('+(open?180:0)+'deg)">'+ICON.chev+'</span></button>';
+    if(open){
+      html += monthSelectControls(gs);
+      html += gs.map(gameCard).join('');
+    }
   });
   return html;
 }
@@ -1578,6 +1592,12 @@ document.addEventListener('click', async function(e){
     }
     case 'clear-game-selection': S.selectedGames=new Set(); S.confirmBulkCourtFee=false; render(); break;
     case 'select-all-games': S.selectedGames=new Set(S.games.map(function(g){return g.id;})); render(); break;
+    case 'toggle-month': {
+      if(!S.expandedMonths) S.expandedMonths=new Set();
+      if(S.expandedMonths.has(id)) S.expandedMonths.delete(id); else S.expandedMonths.add(id);
+      render();
+      break;
+    }
     case 'select-all-month': {
       var monthKey=id;
       S.games.forEach(function(g){ if(g.date.slice(0,7)===monthKey) S.selectedGames.add(g.id); });
